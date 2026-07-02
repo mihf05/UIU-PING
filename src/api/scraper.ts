@@ -312,7 +312,7 @@ export const ScraperService = {
       const postbackHtml = await postbackRes.text();
 
       // 3. Extract dynamic SSRS ControlID from postback response
-      const controlIdMatch = postbackHtml.match(/ControlID=([a-f0-9]+)/i);
+      const controlIdMatch = postbackHtml.match(/ControlID=([^&"' >]+)/i);
       if (!controlIdMatch) {
         console.log('[ScraperService] SSRS ControlID missing in postback HTML. Falling back to dashboard routine.');
         return this.fallbackDashboardRoutine();
@@ -343,6 +343,41 @@ export const ScraperService = {
       if (targetTable) {
         console.log('[ScraperService] Parsing SSRS routine table cells...');
         const rows = targetTable.querySelectorAll('tr');
+        
+        let colIndices = {
+          code: 1,
+          title: 2,
+          day: 3,
+          room: 4,
+          time: 5,
+          section: 6
+        };
+
+        // Find header row and map columns dynamically
+        for (const row of rows) {
+          const cells = row.querySelectorAll('td, th');
+          const cellTexts = cells.map(c => c.text.trim().toLowerCase());
+          if (cellTexts.some(t => t.includes('formal code') || t.includes('course code'))) {
+            cellTexts.forEach((text, idx) => {
+              if (text.includes('formal code') || text.includes('course code') || text.includes('code')) {
+                colIndices.code = idx;
+              } else if (text.includes('course title') || text.includes('title')) {
+                colIndices.title = idx;
+              } else if (text.includes('day')) {
+                colIndices.day = idx;
+              } else if (text.includes('room')) {
+                colIndices.room = idx;
+              } else if (text.includes('time slot') || text.includes('time')) {
+                colIndices.time = idx;
+              } else if (text.includes('section')) {
+                colIndices.section = idx;
+              }
+            });
+            console.log('[ScraperService] Dynamically mapped SSRS columns:', colIndices);
+            break;
+          }
+        }
+
         let lastCode = '';
         let lastTitle = '';
         let lastSection = '';
@@ -359,15 +394,14 @@ export const ScraperService = {
           let timeVal = '';
           let secVal = '';
 
-          // Column configuration:
-          // 0: Spacer, 1: Course Code, 2: Course Title, 3: Day, 4: Room, 5: Time Slot, 6: Section
-          if (cells.length >= 7) {
-            codeVal = cells[1].text.trim();
-            titleVal = cells[2].text.trim();
-            dayVal = cells[3].text.trim();
-            roomVal = cells[4].text.trim();
-            timeVal = cells[5].text.trim();
-            secVal = cells[6].text.trim();
+          const maxIdx = Math.max(...Object.values(colIndices));
+          if (cells.length > maxIdx) {
+            codeVal = cells[colIndices.code].text.trim();
+            titleVal = cells[colIndices.title].text.trim();
+            dayVal = cells[colIndices.day].text.trim();
+            roomVal = cells[colIndices.room].text.trim();
+            timeVal = cells[colIndices.time].text.trim();
+            secVal = cells[colIndices.section].text.trim();
 
             if (codeVal) lastCode = codeVal;
             if (titleVal) lastTitle = titleVal;
@@ -454,13 +488,24 @@ export const ScraperService = {
                 section = parts[1].replace(')', '').trim();
               }
               
+              let roomVal = 'N/A';
+              if (cells.length >= 3) {
+                roomVal = cells[2].text.trim();
+              } else {
+                // Check if room is inside timeSlot (e.g. "08:30 AM-10:00 AM (Room: 302)")
+                const roomMatch = timeSlot.match(/(?:Room|Rm|R\.?)\s*[:#-]?\s*([A-Za-z0-9-]+)/i);
+                if (roomMatch) {
+                  roomVal = roomMatch[1];
+                }
+              }
+
               routine.push({
                 day: currentDay,
                 courseCode,
                 section,
                 courseTitle,
                 timeSlot,
-                room: 'N/A'
+                room: roomVal
               });
             }
           }

@@ -735,8 +735,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
         key={key}
         style={{
           position: 'absolute',
-          left: x1 + 6,
-          top: y1 + 6,
+          left: x1,
+          top: y1,
           width: distance,
           height: 2.2,
           backgroundColor: Theme.colors.primary,
@@ -1024,12 +1024,15 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
 
   const renderResultsTab = () => {
     const chartData = [...results].reverse();
-    const chartWidth = (width || SCREEN_WIDTH_STATIC) - 80;
+    const canvasWidth = (width || SCREEN_WIDTH_STATIC) - 64;
+    const chartLeftPadding = 40;
+    const chartRightPadding = 45;
+    const chartWidth = canvasWidth - chartLeftPadding - chartRightPadding;
     const chartHeight = 110;
     
     const points = chartData.map((item, idx) => {
       const gpa = item.gpa;
-      const x = 30 + idx * (chartWidth / Math.max(1, chartData.length - 1));
+      const x = chartLeftPadding + idx * (chartWidth / Math.max(1, chartData.length - 1));
       const y = 15 + (1 - (gpa / 4.0)) * chartHeight;
       return { x, y, item, idx };
     });
@@ -1094,7 +1097,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
               {[4.0, 3.0, 2.0, 1.0, 0.0].map((level) => {
                 const yLevel = 15 + (1 - (level / 4.0)) * chartHeight;
                 return (
-                  <View key={level} style={[styles.chartGridLine, { top: yLevel + 6 }]}>
+                  <View key={level} style={[styles.chartGridLine, { top: yLevel }]}>
                     <Text style={styles.gridLineLabel}>{level.toFixed(1)}</Text>
                   </View>
                 );
@@ -1109,7 +1112,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
               {points.map((p) => (
                 <TouchableOpacity
                   key={p.idx}
-                  style={[styles.chartDot, { left: p.x, top: p.y }]}
+                  style={[styles.chartDot, { left: p.x - 6, top: p.y - 6 }]}
                   onPress={() => setActiveChartTooltip(activeChartTooltip === p.idx ? null : p.idx)}
                   activeOpacity={0.7}
                 >
@@ -1125,9 +1128,9 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
             </View>
 
             <View style={styles.chartXAxis}>
-              {chartData.map((item, idx) => (
-                <Text key={idx} style={styles.chartXLabel} numberOfLines={1}>
-                  {item.semesterName.substring(0, 3)} '{item.year.toString().slice(-2)}
+              {points.map((p, idx) => (
+                <Text key={idx} style={[styles.chartXLabel, { position: 'absolute', left: p.x - 22.5 }]} numberOfLines={1}>
+                  {p.item.semesterName.substring(0, 3)} '{p.item.year.toString().slice(-2)}
                 </Text>
               ))}
             </View>
@@ -2034,7 +2037,7 @@ const styles = StyleSheet.create({
   chartGridLine: {
     position: 'absolute',
     left: 40,
-    right: 10,
+    right: 45,
     height: 1,
     backgroundColor: '#1E2536',
     flexDirection: 'row',
@@ -2087,9 +2090,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   chartXAxis: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginLeft: 30,
+    position: 'relative',
+    height: 20,
     marginTop: 6,
     paddingBottom: 2,
   },
