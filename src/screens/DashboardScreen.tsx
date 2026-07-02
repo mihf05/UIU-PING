@@ -25,7 +25,27 @@ import { NotificationService } from '../services/notifications';
 // Static fallback for contexts outside hooks (e.g. icon rendering)
 const SCREEN_WIDTH_STATIC = Dimensions.get('window').width;
 
-// --- Custom pure-View Vector Outline Icons ---
+import {
+  Home,
+  Calendar,
+  TrendingUp,
+  RefreshCw,
+  Eye,
+  EyeOff,
+  CreditCard,
+  Check,
+  FileText,
+  Users,
+  AlertTriangle,
+  X,
+  Clock,
+  MapPin,
+  DollarSign,
+  Wifi,
+  WifiOff
+} from 'lucide-react-native';
+
+// --- Lucide Vector Icons Interface ---
 interface CustomIconProps {
   name: 'home' | 'calendar' | 'trending-up' | 'refresh-cw' | 'eye' | 'eye-off' | 'credit-card' | 'check' | 'file-text' | 'users' | 'alert-triangle' | 'x' | 'clock' | 'map-pin' | 'dollar-sign' | 'wifi' | 'wifi-off';
   size?: number;
@@ -33,320 +53,25 @@ interface CustomIconProps {
 }
 
 const CustomIcon: React.FC<CustomIconProps> = ({ name, size = 18, color = '#FFF' }) => {
-  const innerStyles = StyleSheet.create({
-    container: {
-      width: size,
-      height: size,
-      alignItems: 'center',
-      justifyContent: 'center',
-      position: 'relative',
-    }
-  });
-
   switch (name) {
-    case 'home':
-      return (
-        <View style={innerStyles.container}>
-          <View style={{
-            width: 0,
-            height: 0,
-            borderLeftWidth: size / 2,
-            borderRightWidth: size / 2,
-            borderBottomWidth: size / 2 - 1,
-            borderLeftColor: 'transparent',
-            borderRightColor: 'transparent',
-            borderBottomColor: color,
-            position: 'absolute',
-            top: 0
-          }} />
-          <View style={{
-            width: size - 4,
-            height: size / 2,
-            backgroundColor: color,
-            position: 'absolute',
-            bottom: 0
-          }} />
-        </View>
-      );
-    case 'calendar':
-      return (
-        <View style={[innerStyles.container, {
-          borderWidth: 2,
-          borderColor: color,
-          borderRadius: 3,
-          padding: 1
-        }]}>
-          <View style={{ width: '100%', height: 2, backgroundColor: color, position: 'absolute', top: 1 }} />
-          <View style={{ flexDirection: 'row', marginTop: 3 }}>
-            <View style={{ width: 2, height: 2, backgroundColor: color, margin: 1, borderRadius: 1 }} />
-            <View style={{ width: 2, height: 2, backgroundColor: color, margin: 1, borderRadius: 1 }} />
-          </View>
-        </View>
-      );
-    case 'trending-up':
-      return (
-        <View style={innerStyles.container}>
-          <View style={{
-            width: size,
-            height: 2,
-            backgroundColor: color,
-            transform: [{ rotate: '-35deg' }],
-            position: 'absolute',
-          }} />
-          <View style={{
-            width: 5,
-            height: 2,
-            backgroundColor: color,
-            position: 'absolute',
-            top: 2,
-            right: 0
-          }} />
-          <View style={{
-            width: 2,
-            height: 5,
-            backgroundColor: color,
-            position: 'absolute',
-            top: 2,
-            right: 0
-          }} />
-        </View>
-      );
-    case 'refresh-cw':
-      return (
-        <View style={[innerStyles.container, {
-          borderWidth: 2,
-          borderColor: color,
-          borderRadius: size / 2,
-          borderBottomColor: 'transparent'
-        }]}>
-          <View style={{
-            width: 0,
-            height: 0,
-            borderLeftWidth: 3,
-            borderRightWidth: 3,
-            borderBottomWidth: 4,
-            borderLeftColor: 'transparent',
-            borderRightColor: 'transparent',
-            borderBottomColor: color,
-            position: 'absolute',
-            bottom: 0,
-            right: -2,
-            transform: [{ rotate: '45deg' }]
-          }} />
-        </View>
-      );
-    case 'eye':
-      return (
-        <View style={[innerStyles.container, {
-          width: size,
-          height: size / 2 + 2,
-          borderWidth: 2,
-          borderColor: color,
-          borderRadius: size / 2,
-          alignItems: 'center',
-          justifyContent: 'center'
-        }]}>
-          <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: color }} />
-        </View>
-      );
-    case 'eye-off':
-      return (
-        <View style={[innerStyles.container, {
-          width: size,
-          height: size / 2 + 2,
-          borderWidth: 2,
-          borderColor: color,
-          borderRadius: size / 2,
-          alignItems: 'center',
-          justifyContent: 'center'
-        }]}>
-          <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: color }} />
-          <View style={{
-            position: 'absolute',
-            width: size + 4,
-            height: 2,
-            backgroundColor: color,
-            transform: [{ rotate: '35deg' }]
-          }} />
-        </View>
-      );
-    case 'credit-card':
-      return (
-        <View style={[innerStyles.container, {
-          borderWidth: 2,
-          borderColor: color,
-          borderRadius: 3,
-          justifyContent: 'flex-start',
-          paddingTop: 3
-        }]}>
-          <View style={{ width: '100%', height: 2, backgroundColor: color }} />
-        </View>
-      );
-    case 'check':
-      return (
-        <View style={innerStyles.container}>
-          <View style={{
-            width: 2,
-            height: size / 2,
-            backgroundColor: color,
-            transform: [{ rotate: '-45deg' }],
-            position: 'absolute',
-            left: size / 2 - 2,
-            bottom: 3
-          }} />
-          <View style={{
-            width: 2,
-            height: size - 3,
-            backgroundColor: color,
-            transform: [{ rotate: '45deg' }],
-            position: 'absolute',
-            right: size / 2 - 3,
-            bottom: 3
-          }} />
-        </View>
-      );
-    case 'file-text':
-      return (
-        <View style={[innerStyles.container, {
-          borderWidth: 2,
-          borderColor: color,
-          borderRadius: 2,
-          padding: 1
-        }]}>
-          <View style={{ width: '60%', height: 1.5, backgroundColor: color, marginBottom: 2 }} />
-          <View style={{ width: '60%', height: 1.5, backgroundColor: color }} />
-        </View>
-      );
-    case 'users':
-      return (
-        <View style={innerStyles.container}>
-          <View style={{ width: 6, height: 6, borderRadius: 3, borderWidth: 1.5, borderColor: color, position: 'absolute', top: 1, left: 1 }} />
-          <View style={{ width: 6, height: 6, borderRadius: 3, borderWidth: 1.5, borderColor: color, position: 'absolute', top: 1, right: 1 }} />
-          <View style={{ width: 12, height: 4, borderTopLeftRadius: 3, borderTopRightRadius: 3, borderWidth: 1.5, borderColor: color, borderBottomWidth: 0, position: 'absolute', bottom: 1 }} />
-        </View>
-      );
-    case 'alert-triangle':
-      return (
-        <View style={innerStyles.container}>
-          <View style={{
-            width: 0,
-            height: 0,
-            borderLeftWidth: size / 2,
-            borderRightWidth: size / 2,
-            borderBottomWidth: size - 2,
-            borderLeftColor: 'transparent',
-            borderRightColor: 'transparent',
-            borderBottomColor: color,
-            position: 'absolute'
-          }} />
-          <View style={{ width: 1.5, height: 4, backgroundColor: '#0A0E1A', position: 'absolute', top: 4 }} />
-          <View style={{ width: 1.5, height: 1.5, borderRadius: 0.75, backgroundColor: '#0A0E1A', position: 'absolute', bottom: 2 }} />
-        </View>
-      );
-    case 'x':
-      return (
-        <View style={innerStyles.container}>
-          <View style={{
-            width: size,
-            height: 2,
-            backgroundColor: color,
-            transform: [{ rotate: '45deg' }],
-            position: 'absolute'
-          }} />
-          <View style={{
-            width: size,
-            height: 2,
-            backgroundColor: color,
-            transform: [{ rotate: '-45deg' }],
-            position: 'absolute'
-          }} />
-        </View>
-      );
-    case 'clock':
-      return (
-        <View style={[innerStyles.container, {
-          borderWidth: 2,
-          borderColor: color,
-          borderRadius: size / 2,
-        }]}>
-          <View style={{
-            width: 1.5,
-            height: size / 2 - 2,
-            backgroundColor: color,
-            position: 'absolute',
-            top: 2
-          }} />
-          <View style={{
-            width: size / 2 - 2,
-            height: 1.5,
-            backgroundColor: color,
-            position: 'absolute',
-            top: size / 2 - 0.75,
-            left: size / 2 - 0.75
-          }} />
-        </View>
-      );
-    case 'map-pin':
-      return (
-        <View style={innerStyles.container}>
-          <View style={{
-            width: size - 4,
-            height: size - 4,
-            borderRadius: (size - 4) / 2,
-            borderWidth: 2,
-            borderColor: color,
-            position: 'absolute',
-            top: 0
-          }} />
-          <View style={{
-            width: 3,
-            height: 3,
-            borderRadius: 1.5,
-            backgroundColor: color,
-            position: 'absolute',
-            top: size / 2 - 3
-          }} />
-        </View>
-      );
-    case 'dollar-sign':
-      return (
-        <View style={innerStyles.container}>
-          <View style={{
-            width: size - 6,
-            height: size - 2,
-            borderColor: color,
-            borderWidth: 1.8,
-            borderRadius: 3,
-            borderLeftColor: 'transparent',
-            borderRightColor: 'transparent',
-            transform: [{ skewX: '-10deg' }]
-          }} />
-          <View style={{
-            width: 1.8,
-            height: size,
-            backgroundColor: color,
-            position: 'absolute'
-          }} />
-        </View>
-      );
-    case 'wifi':
-      return (
-        <View style={innerStyles.container}>
-          <View style={{ width: 12, height: 12, borderRadius: 6, borderWidth: 1.5, borderColor: color, borderBottomColor: 'transparent', borderLeftColor: 'transparent', borderRightColor: 'transparent' }} />
-          <View style={{ width: 7, height: 7, borderRadius: 3.5, borderWidth: 1.5, borderColor: color, borderBottomColor: 'transparent', borderLeftColor: 'transparent', borderRightColor: 'transparent', position: 'absolute', top: 2.5 }} />
-          <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: color, position: 'absolute', bottom: 1 }} />
-        </View>
-      );
-    case 'wifi-off':
-      return (
-        <View style={innerStyles.container}>
-          <View style={{ width: 12, height: 12, borderRadius: 6, borderWidth: 1.5, borderColor: color, borderBottomColor: 'transparent', borderLeftColor: 'transparent', borderRightColor: 'transparent' }} />
-          <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: color, position: 'absolute', bottom: 1 }} />
-          <View style={{ position: 'absolute', width: size + 4, height: 1.5, backgroundColor: Theme.colors.error, transform: [{ rotate: '45deg' }] }} />
-        </View>
-      );
-    default:
-      return null;
+    case 'home': return <Home size={size} color={color} />;
+    case 'calendar': return <Calendar size={size} color={color} />;
+    case 'trending-up': return <TrendingUp size={size} color={color} />;
+    case 'refresh-cw': return <RefreshCw size={size} color={color} />;
+    case 'eye': return <Eye size={size} color={color} />;
+    case 'eye-off': return <EyeOff size={size} color={color} />;
+    case 'credit-card': return <CreditCard size={size} color={color} />;
+    case 'check': return <Check size={size} color={color} />;
+    case 'file-text': return <FileText size={size} color={color} />;
+    case 'users': return <Users size={size} color={color} />;
+    case 'alert-triangle': return <AlertTriangle size={size} color={color} />;
+    case 'x': return <X size={size} color={color} />;
+    case 'clock': return <Clock size={size} color={color} />;
+    case 'map-pin': return <MapPin size={size} color={color} />;
+    case 'dollar-sign': return <DollarSign size={size} color={color} />;
+    case 'wifi': return <Wifi size={size} color={color} />;
+    case 'wifi-off': return <WifiOff size={size} color={color} />;
+    default: return null;
   }
 };
 
