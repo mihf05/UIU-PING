@@ -29,6 +29,9 @@ yarn-error.*
 # macOS
 .DS_Store
 *.pem
+!assets/ucam_leaf.pem
+!assets/ucam_intermediate.pem
+!assets/ucam_root.pem
 
 # local env files
 .env*.local

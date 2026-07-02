@@ -24,7 +24,10 @@ function withNetworkSecurityXml(config) {
           console.log(`[withNetworkSecurity] Copying certificate from ${srcCertPath} to ${destCertPath}`);
           fs.copyFileSync(srcCertPath, destCertPath);
         } else {
-          console.warn(`[withNetworkSecurity] Certificate not found at ${srcCertPath}!`);
+          throw new Error(
+            `[withNetworkSecurity] Certificate not found at ${srcCertPath}. ` +
+            `Ensure the .pem files are committed (check .gitignore for *.pem exclusions).`
+          );
         }
       }
 
