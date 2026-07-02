@@ -124,3 +124,48 @@ jobs:
         with:
           name: UIU-Ping-iOS-App
           path: ios/build/Build/Products/Release-iphoneos/UIU-Ping-iOS.app.zip
+
+  create-release:
+    name: Create GitHub Release
+    needs: [build-android, build-ios]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Android Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: UIU-Ping-Android-APK
+          path: ./release-assets
+
+      - name: Download iOS Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: UIU-Ping-iOS-App
+          path: ./release-assets
+
+      - name: Rename Android APK for Release
+        run: |
+          cd release-assets
+          mv *.apk UIU-Ping-Android.apk || true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Release v1.0.${{ github.run_number }}
+          draft: false
+          prerelease: false
+          files: |
+            release-assets/UIU-Ping-Android.apk
+            release-assets/UIU-Ping-iOS.app.zip
+          body: |
+            Automated build release for UIU Ping.
+            
+            ### Downloads
+            - **Android (Installable APK)**: [UIU-Ping-Android.apk](https://github.com/${{ github.repository }}/releases/download/v1.0.${{ github.run_number }}/UIU-Ping-Android.apk)
+            - **iOS (Simulator App Bundle)**: [UIU-Ping-iOS.app.zip](https://github.com/${{ github.repository }}/releases/download/v1.0.${{ github.run_number }}/UIU-Ping-iOS.app.zip)
+            
+            *Compiled automatically on commit: `${{ github.sha }}`*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
