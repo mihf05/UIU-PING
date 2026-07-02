@@ -34,6 +34,10 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | sdkmanager --licenses || true
+          
       - name: Prebuild Expo Android Project
         run: npx expo prebuild --platform android --no-install
 
@@ -84,12 +88,18 @@ jobs:
       - name: Compile Xcode iOS App Bundle
         run: |
           cd ios
-          # Compile scheme matching project output path dynamically without signing credentials
-          xcodebuild -workspace *.xcworkspace \
-                     -scheme * \
+          # Extract dynamic scheme name from xcworkspace file
+          WORKSPACE_FILE=$(ls -d *.xcworkspace | head -n 1)
+          SCHEME_NAME="${WORKSPACE_FILE%.xcworkspace}"
+          echo "Workspace found: $WORKSPACE_FILE"
+          echo "Scheme resolved: $SCHEME_NAME"
+          
+          xcodebuild -workspace "$WORKSPACE_FILE" \
+                     -scheme "$SCHEME_NAME" \
                      -configuration Release \
                      -sdk iphoneos \
                      -destination 'generic/platform=iOS' \
+                     -derivedDataPath build \
                      CODE_SIGNING_ALLOWED=NO \
                      CODE_SIGNING_REQUIRED=NO \
                      clean build
