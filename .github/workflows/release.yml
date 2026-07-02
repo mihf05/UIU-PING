@@ -3,10 +3,10 @@ name: Build and Release UIU Ping
 on:
   push:
     branches:
-      - main
+      - master
   pull_request:
     branches:
-      - main
+      - master
 
 jobs:
   build-android:
