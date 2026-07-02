@@ -314,7 +314,7 @@ export const ScraperService = {
       // 3. Extract dynamic SSRS ControlID from postback response
       const controlIdMatch = postbackHtml.match(/ControlID=([a-f0-9]+)/i);
       if (!controlIdMatch) {
-        console.warn('[ScraperService] SSRS ControlID missing in postback HTML. Falling back to dashboard routine.');
+        console.log('[ScraperService] SSRS ControlID missing in postback HTML. Falling back to dashboard routine.');
         return this.fallbackDashboardRoutine();
       }
 
@@ -406,7 +406,7 @@ export const ScraperService = {
       }
 
       if (routine.length === 0) {
-        console.warn('[ScraperService] SSRS routine table was empty or not found. Falling back to dashboard routine.');
+        console.log('[ScraperService] SSRS routine table was empty or not found. Falling back to dashboard routine.');
         return this.fallbackDashboardRoutine();
       }
 
