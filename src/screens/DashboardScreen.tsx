@@ -11,7 +11,8 @@ import {
   Platform,
   Alert,
   Dimensions,
-  Modal
+  Modal,
+  useWindowDimensions
 } from 'react-native';
 import { Theme } from '../components/Theme';
 import { CustomButton } from '../components/CustomButton';
@@ -19,7 +20,8 @@ import { ScraperService, NoticeItem, ResultSummaryItem, AttendanceSummaryItem, R
 import { StorageService, ScraperLog } from '../services/storage';
 import { BackgroundService } from '../services/background';
 
-const { width } = Dimensions.get('window');
+// Static fallback for contexts outside hooks (e.g. icon rendering)
+const SCREEN_WIDTH_STATIC = Dimensions.get('window').width;
 
 // --- Custom pure-View Vector Outline Icons ---
 interface CustomIconProps {
@@ -353,6 +355,7 @@ interface DashboardScreenProps {
 type TabType = 'home' | 'routine' | 'results' | 'sync';
 
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) => {
+  const { width, height } = useWindowDimensions();
   const [activeTab, setActiveTab] = useState<TabType>('home');
   const [syncing, setSyncing] = useState(false);
   const [studentId, setStudentId] = useState('');
@@ -1021,7 +1024,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
 
   const renderResultsTab = () => {
     const chartData = [...results].reverse();
-    const chartWidth = width - 80;
+    const chartWidth = (width || SCREEN_WIDTH_STATIC) - 80;
     const chartHeight = 110;
     
     const points = chartData.map((item, idx) => {
@@ -1305,29 +1308,43 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
     }
   };
 
+  // --- Responsive scaling helpers ---
+  const isSmall = width < 360;
+  const isLarge = width >= 768;
+  const headerPadH = isSmall ? Theme.spacing.md : isLarge ? Theme.spacing.xl : Theme.spacing.lg;
+  const headerPadV = isSmall ? 10 : isLarge ? Theme.spacing.lg : Theme.spacing.md;
+  const titleSize = isSmall ? 14 : isLarge ? 20 : 16;
+  const syncIconSize = isSmall ? 10 : isLarge ? 16 : 12;
+  const syncTextSize = isSmall ? 9 : isLarge ? 13 : 11;
+  const logoutTextSize = isSmall ? 9 : isLarge ? 13 : 11;
+  const tabBarHeight = isSmall ? 50 : isLarge ? 68 : 56;
+  const tabIconSize = isSmall ? 14 : isLarge ? 22 : 16;
+  const tabTextSize = isSmall ? 8 : isLarge ? 12 : 10;
+  const badgeTextSize = isSmall ? 8 : isLarge ? 11 : 9;
+
   return (
     <SafeAreaView style={styles.safeContainer}>
       <StatusBar barStyle="light-content" backgroundColor={Theme.colors.background} />
       
-      {/* App Header */}
-      <View style={styles.header}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Text style={styles.appTitle}>UIU Ping</Text>
+      {/* App Header — responsive */}
+      <View style={[styles.header, { paddingHorizontal: headerPadH, paddingVertical: headerPadV }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 1 }}>
+          <Text style={[styles.appTitle, { fontSize: titleSize }]} numberOfLines={1}>UIU Ping</Text>
           <View style={styles.badge}>
-            <Text style={styles.badgeText}>Active</Text>
+            <Text style={[styles.badgeText, { fontSize: badgeTextSize }]}>Active</Text>
           </View>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 0 }}>
           <TouchableOpacity 
             style={[styles.headerSyncBtn, syncing && { opacity: 0.6 }]} 
             onPress={handleManualSync}
             disabled={syncing}
           >
-            <CustomIcon name="refresh-cw" size={12} color={Theme.colors.primary} />
-            <Text style={styles.headerSyncText}>{syncing ? 'Syncing...' : 'Sync'}</Text>
+            <CustomIcon name="refresh-cw" size={syncIconSize} color={Theme.colors.primary} />
+            <Text style={[styles.headerSyncText, { fontSize: syncTextSize }]}>{syncing ? 'Syncing...' : 'Sync'}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-            <Text style={styles.logoutBtnText}>Sign Out</Text>
+            <Text style={[styles.logoutBtnText, { fontSize: logoutTextSize }]}>Sign Out</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -1439,8 +1456,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
         </View>
       </Modal>
 
-      {/* Bottom Tab Bar */}
-      <View style={styles.bottomTabBar}>
+      {/* Bottom Tab Bar — responsive */}
+      <View style={[styles.bottomTabBar, { height: tabBarHeight, paddingBottom: Platform.OS === 'ios' ? 4 : 0 }]}>
         <TouchableOpacity
           style={[styles.bottomTab, activeTab === 'home' && styles.bottomTabActive]}
           onPress={() => {
@@ -1448,8 +1465,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
             setActiveChartTooltip(null);
           }}
         >
-          <CustomIcon name="home" size={16} color={activeTab === 'home' ? Theme.colors.primary : Theme.colors.textMuted} />
-          <Text style={[styles.bottomTabText, activeTab === 'home' && styles.bottomTabTextActive]}>Home</Text>
+          <CustomIcon name="home" size={tabIconSize} color={activeTab === 'home' ? Theme.colors.primary : Theme.colors.textMuted} />
+          <Text style={[styles.bottomTabText, { fontSize: tabTextSize }, activeTab === 'home' && styles.bottomTabTextActive]}>Home</Text>
         </TouchableOpacity>
         
         <TouchableOpacity
@@ -1459,8 +1476,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
             setActiveChartTooltip(null);
           }}
         >
-          <CustomIcon name="calendar" size={16} color={activeTab === 'routine' ? Theme.colors.primary : Theme.colors.textMuted} />
-          <Text style={[styles.bottomTabText, activeTab === 'routine' && styles.bottomTabTextActive]}>Routine</Text>
+          <CustomIcon name="calendar" size={tabIconSize} color={activeTab === 'routine' ? Theme.colors.primary : Theme.colors.textMuted} />
+          <Text style={[styles.bottomTabText, { fontSize: tabTextSize }, activeTab === 'routine' && styles.bottomTabTextActive]}>Routine</Text>
         </TouchableOpacity>
         
         <TouchableOpacity
@@ -1470,8 +1487,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
             setActiveChartTooltip(null);
           }}
         >
-          <CustomIcon name="trending-up" size={16} color={activeTab === 'results' ? Theme.colors.primary : Theme.colors.textMuted} />
-          <Text style={[styles.bottomTabText, activeTab === 'results' && styles.bottomTabTextActive]}>Results</Text>
+          <CustomIcon name="trending-up" size={tabIconSize} color={activeTab === 'results' ? Theme.colors.primary : Theme.colors.textMuted} />
+          <Text style={[styles.bottomTabText, { fontSize: tabTextSize }, activeTab === 'results' && styles.bottomTabTextActive]}>Results</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -1481,8 +1498,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
             setActiveChartTooltip(null);
           }}
         >
-          <CustomIcon name="refresh-cw" size={16} color={activeTab === 'sync' ? Theme.colors.primary : Theme.colors.textMuted} />
-          <Text style={[styles.bottomTabText, activeTab === 'sync' && styles.bottomTabTextActive]}>Sync</Text>
+          <CustomIcon name="refresh-cw" size={tabIconSize} color={activeTab === 'sync' ? Theme.colors.primary : Theme.colors.textMuted} />
+          <Text style={[styles.bottomTabText, { fontSize: tabTextSize }, activeTab === 'sync' && styles.bottomTabTextActive]}>Sync</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -1498,8 +1515,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: Theme.spacing.lg,
-    paddingVertical: Theme.spacing.md,
+    // paddingHorizontal and paddingVertical are set dynamically via inline styles
     borderBottomWidth: 1.2,
     borderBottomColor: Theme.colors.cardBorder,
     backgroundColor: '#070A13',
@@ -1554,7 +1570,7 @@ const styles = StyleSheet.create({
   tabContentWrapper: {
     flex: 1,
     padding: Theme.spacing.md,
-    marginBottom: 60,
+    marginBottom: 70,
   },
   tabHeaderTitle: {
     fontSize: 18,
@@ -2270,7 +2286,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: 56,
+    // height is set dynamically via inline styles
     flexDirection: 'row',
     borderTopWidth: 1.2,
     borderTopColor: Theme.colors.cardBorder,

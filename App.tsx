@@ -25,20 +25,24 @@ export default function App() {
       // 1. Request notification permissions from device
       await NotificationService.requestPermissions();
 
-      // 2. Check if credentials exist and auto-login if possible
+      // 2. Check if credentials exist — if so, go straight to dashboard
       const credentials = await StorageService.getCredentials();
       if (credentials) {
-        console.log('[App] Saved credentials located. Verifying session...');
-        await StorageService.addScraperLog('info', 'App launched. Checking session validity...');
+        console.log('[App] Saved credentials located. Restoring session directly.');
+        await StorageService.addScraperLog('info', 'App launched. Credentials found, restoring session.');
+        setIsAuthenticated(true);
         
-        const sessionActive = await AuthService.ensureAuthenticated();
-        if (sessionActive) {
-          setIsAuthenticated(true);
-          await StorageService.addScraperLog('info', 'Session automatically restored.');
-        } else {
-          console.log('[App] Session check failed, credentials present. User must re-login.');
-          await StorageService.addScraperLog('warning', 'Saved session expired. Re-login required.');
-        }
+        // Silently re-authenticate in background (non-blocking)
+        AuthService.ensureAuthenticated().then(async (valid) => {
+          if (valid) {
+            await StorageService.addScraperLog('info', 'Session automatically restored.');
+          } else {
+            console.log('[App] Background session refresh failed. User stays on dashboard with cached data.');
+            await StorageService.addScraperLog('warning', 'Background session refresh failed. Using cached data.');
+          }
+        }).catch((err) => {
+          console.warn('[App] Background auth check error:', err);
+        });
       } else {
         console.log('[App] No credentials located. Directing to login.');
       }
