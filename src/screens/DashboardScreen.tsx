@@ -20,6 +20,7 @@ import { ScraperService, NoticeItem, ResultSummaryItem, AttendanceSummaryItem, R
 import { StorageService, ScraperLog } from '../services/storage';
 import { BackgroundService } from '../services/background';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { NotificationService } from '../services/notifications';
 
 // Static fallback for contexts outside hooks (e.g. icon rendering)
 const SCREEN_WIDTH_STATIC = Dimensions.get('window').width;
@@ -490,6 +491,13 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
       setLastRun(new Date().toLocaleString());
       const refreshedLogs = await StorageService.getScraperLogs();
       setLogs(refreshedLogs);
+
+      // Trigger local push notification on background/silent sync completion
+      const currentGpa = scrapedResults.length > 0 ? scrapedResults[0].gpa : null;
+      await NotificationService.triggerLocalNotification(
+        'UCAM Background Synced 🔄',
+        `Automatic check finished. Current GPA: ${currentGpa !== null ? currentGpa.toFixed(2) : 'N/A'}`
+      );
     } catch (e) {
       console.log('[DashboardScreen] Silent online sync encountered rate limits or session errors:', e);
     }
@@ -550,6 +558,13 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
       // Refresh logs
       const refreshedLogs = await StorageService.getScraperLogs();
       setLogs(refreshedLogs);
+
+      // Trigger local push notification on manual sync completion
+      const currentGpa = results.length > 0 ? results[0].gpa : null;
+      await NotificationService.triggerLocalNotification(
+        'UCAM Synced Successfully! 🔄',
+        `Routine: ${scrapedRoutine.length} classes mapped. Current GPA: ${currentGpa !== null ? currentGpa.toFixed(2) : 'N/A'}`
+      );
 
       Alert.alert('Sync Successful', 'Successfully synchronized academic routine, grades, payment records, and attendance details.');
     } catch (error: any) {

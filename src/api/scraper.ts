@@ -315,6 +315,7 @@ export const ScraperService = {
       const controlIdMatch = postbackHtml.match(/ControlID=([^&"' >]+)/i);
       if (!controlIdMatch) {
         console.log('[ScraperService] SSRS ControlID missing in postback HTML. Falling back to dashboard routine.');
+        await StorageService.addScraperLog('warning', 'SSRS ControlID missing in postback HTML. Falling back.');
         return this.fallbackDashboardRoutine();
       }
 
@@ -353,11 +354,11 @@ export const ScraperService = {
           section: 6
         };
 
-        // Find header row and map columns dynamically
+        // Find header row and map columns dynamically (replacing newlines/extra spaces first)
         for (const row of rows) {
           const cells = row.querySelectorAll('td, th');
-          const cellTexts = cells.map(c => c.text.trim().toLowerCase());
-          if (cellTexts.some(t => t.includes('formal code') || t.includes('course code'))) {
+          const cellTexts = cells.map(c => c.text.replace(/\s+/g, ' ').trim().toLowerCase());
+          if (cellTexts.some(t => t.includes('formal code') || t.includes('course code') || (t.includes('code') && t.includes('title')))) {
             cellTexts.forEach((text, idx) => {
               if (text.includes('formal code') || text.includes('course code') || text.includes('code')) {
                 colIndices.code = idx;
@@ -374,6 +375,7 @@ export const ScraperService = {
               }
             });
             console.log('[ScraperService] Dynamically mapped SSRS columns:', colIndices);
+            await StorageService.addScraperLog('info', `Mapped SSRS columns: Code=${colIndices.code}, Title=${colIndices.title}, Room=${colIndices.room}`);
             break;
           }
         }
@@ -394,23 +396,38 @@ export const ScraperService = {
           let timeVal = '';
           let secVal = '';
 
-          const maxIdx = Math.max(...Object.values(colIndices));
-          if (cells.length > maxIdx) {
+          // Safe check: does this row contain actual course info, or is it a spanned/sub-row?
+          const hasCode = colIndices.code < cells.length && cells[colIndices.code].text.trim() !== '';
+          const hasTitle = colIndices.title < cells.length && cells[colIndices.title].text.trim() !== '';
+
+          if (hasCode && hasTitle) {
             codeVal = cells[colIndices.code].text.trim();
             titleVal = cells[colIndices.title].text.trim();
-            dayVal = cells[colIndices.day].text.trim();
-            roomVal = cells[colIndices.room].text.trim();
-            timeVal = cells[colIndices.time].text.trim();
-            secVal = cells[colIndices.section].text.trim();
+            dayVal = colIndices.day < cells.length ? cells[colIndices.day].text.trim() : '';
+            roomVal = colIndices.room < cells.length ? cells[colIndices.room].text.trim() : '';
+            timeVal = colIndices.time < cells.length ? cells[colIndices.time].text.trim() : '';
+            secVal = colIndices.section < cells.length ? cells[colIndices.section].text.trim() : '';
 
             if (codeVal) lastCode = codeVal;
             if (titleVal) lastTitle = titleVal;
             if (secVal) lastSection = secVal;
-          } else if (cells.length >= 5) {
+          } else {
             // RowSpan scenario (carry day, room, time slot)
-            dayVal = cells[1].text.trim();
-            roomVal = cells[2].text.trim();
-            timeVal = cells[3].text.trim();
+            if (cells.length >= 3 && cells.length <= 6) {
+              if (cells.length === 3) {
+                dayVal = cells[0].text.trim();
+                roomVal = cells[1].text.trim();
+                timeVal = cells[2].text.trim();
+              } else if (cells.length === 4) {
+                dayVal = cells[1].text.trim();
+                roomVal = cells[2].text.trim();
+                timeVal = cells[3].text.trim();
+              } else {
+                dayVal = cells[1] ? cells[1].text.trim() : '';
+                roomVal = cells[2] ? cells[2].text.trim() : '';
+                timeVal = cells[3] ? cells[3].text.trim() : '';
+              }
+            }
           }
 
           const finalCode = codeVal || lastCode;
@@ -492,10 +509,12 @@ export const ScraperService = {
               if (cells.length >= 3) {
                 roomVal = cells[2].text.trim();
               } else {
-                // Check if room is inside timeSlot (e.g. "08:30 AM-10:00 AM (Room: 302)")
-                const roomMatch = timeSlot.match(/(?:Room|Rm|R\.?)\s*[:#-]?\s*([A-Za-z0-9-]+)/i);
+                // Check if room is inside timeSlot or codeSecText or courseTitle (e.g. "08:30 AM-10:00 AM (Room: 302)")
+                // Using \s* to support multi-word room names like "Room 309 Permanent Campus"
+                const combinedSearchString = `${timeSlot} ${codeSecText} ${courseTitle}`;
+                const roomMatch = combinedSearchString.match(/(?:Room|Rm|R\.?)\s*[:#-]?\s*([A-Za-z0-9\s-]+)/i);
                 if (roomMatch) {
-                  roomVal = roomMatch[1];
+                  roomVal = roomMatch[1].trim();
                 }
               }
 
@@ -512,6 +531,7 @@ export const ScraperService = {
         }
       }
       console.log(`[ScraperService] Fallback routine parser completed. Found ${routine.length} classes.`);
+      await StorageService.addScraperLog('info', `Fallback parsed ${routine.length} routine classes.`);
       return routine;
     } catch (e: any) {
       console.error('[ScraperService] Fallback routine scraping failed:', e);
