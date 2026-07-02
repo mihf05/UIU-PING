@@ -7,6 +7,8 @@ import { NotificationService } from './src/services/notifications';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { DashboardScreen } from './src/screens/DashboardScreen';
 
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+
 // Crucial: Import the background task registration globally so it registers when the JS bundle mounts.
 import './src/services/background';
 
@@ -71,13 +73,15 @@ export default function App() {
   }
 
   return (
-    <View style={styles.container}>
-      {isAuthenticated ? (
-        <DashboardScreen onLogout={handleLogout} />
-      ) : (
-        <LoginScreen onLoginSuccess={handleLoginSuccess} />
-      )}
-    </View>
+    <SafeAreaProvider>
+      <View style={styles.container}>
+        {isAuthenticated ? (
+          <DashboardScreen onLogout={handleLogout} />
+        ) : (
+          <LoginScreen onLoginSuccess={handleLoginSuccess} />
+        )}
+      </View>
+    </SafeAreaProvider>
   );
 }
 

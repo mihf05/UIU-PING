@@ -19,6 +19,7 @@ import { CustomButton } from '../components/CustomButton';
 import { ScraperService, NoticeItem, ResultSummaryItem, AttendanceSummaryItem, RoutineItem, CourseHistoryItem, PreRegistrationItem, BillingDetails, BillTransaction } from '../api/scraper';
 import { StorageService, ScraperLog } from '../services/storage';
 import { BackgroundService } from '../services/background';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Static fallback for contexts outside hooks (e.g. icon rendering)
 const SCREEN_WIDTH_STATIC = Dimensions.get('window').width;
@@ -356,6 +357,7 @@ type TabType = 'home' | 'routine' | 'results' | 'sync';
 
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) => {
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<TabType>('home');
   const [syncing, setSyncing] = useState(false);
   const [studentId, setStudentId] = useState('');
@@ -828,7 +830,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
   };
 
   const renderHomeTab = () => (
-    <ScrollView style={styles.tabContentWrapper} showsVerticalScrollIndicator={false}>
+    <ScrollView style={[styles.tabContentWrapper, { marginBottom: tabBarHeight + insets.bottom }]} showsVerticalScrollIndicator={false}>
       {/* Mini Profile / CGPA Card */}
       <View style={styles.profileCard}>
         <View style={styles.profileInfo}>
@@ -979,7 +981,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
     });
 
     return (
-      <ScrollView style={styles.tabContentWrapper} showsVerticalScrollIndicator={false}>
+      <ScrollView style={[styles.tabContentWrapper, { marginBottom: tabBarHeight + insets.bottom }]} showsVerticalScrollIndicator={false}>
         <Text style={styles.tabHeaderTitle}>Weekly Class Schedule</Text>
         
         {/* Dynamic header tracker inside routine tab */}
@@ -1085,7 +1087,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
     }
 
     return (
-      <ScrollView style={styles.tabContentWrapper} showsVerticalScrollIndicator={false}>
+      <ScrollView style={[styles.tabContentWrapper, { marginBottom: tabBarHeight + insets.bottom }]} showsVerticalScrollIndicator={false}>
         <Text style={styles.tabHeaderTitle}>Trimester Grades</Text>
         
         {/* Responsive Line Chart */}
@@ -1211,7 +1213,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
   };
 
   const renderSyncTab = () => (
-    <ScrollView style={styles.tabContentWrapper} showsVerticalScrollIndicator={false}>
+    <ScrollView style={[styles.tabContentWrapper, { marginBottom: tabBarHeight + insets.bottom }]} showsVerticalScrollIndicator={false}>
       <View style={styles.card}>
         <View style={styles.statusHeader}>
           <Text style={styles.statusTitle}>UCAM Sync Settings</Text>
@@ -1326,11 +1328,18 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
   const badgeTextSize = isSmall ? 8 : isLarge ? 11 : 9;
 
   return (
-    <SafeAreaView style={styles.safeContainer}>
+    <View style={styles.safeContainer}>
       <StatusBar barStyle="light-content" backgroundColor={Theme.colors.background} />
       
-      {/* App Header — responsive */}
-      <View style={[styles.header, { paddingHorizontal: headerPadH, paddingVertical: headerPadV }]}>
+      {/* App Header — responsive & notch-proof */}
+      <View style={[
+        styles.header, 
+        { 
+          paddingHorizontal: headerPadH, 
+          paddingTop: insets.top > 0 ? insets.top + 8 : headerPadV, 
+          paddingBottom: headerPadV 
+        }
+      ]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 1 }}>
           <Text style={[styles.appTitle, { fontSize: titleSize }]} numberOfLines={1}>UIU Ping</Text>
           <View style={styles.badge}>
@@ -1376,7 +1385,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
                 <Text style={styles.emptyText}>No registration lists found. Sync dashboard data.</Text>
               ) : (
                 preRegistration.map((item, idx) => (
-                  <View key={idx} style={styles.regCard}>
+                   <View key={idx} style={styles.regCard}>
                     <View style={{ flex: 1, paddingRight: Theme.spacing.md }}>
                       <Text style={styles.regCode}>{item.courseCode}</Text>
                       <Text style={styles.regTitle} numberOfLines={1}>{item.courseTitle}</Text>
@@ -1459,8 +1468,14 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
         </View>
       </Modal>
 
-      {/* Bottom Tab Bar — responsive */}
-      <View style={[styles.bottomTabBar, { height: tabBarHeight, paddingBottom: Platform.OS === 'ios' ? 4 : 0 }]}>
+      {/* Bottom Tab Bar — responsive & navigation-bar-proof */}
+      <View style={[
+        styles.bottomTabBar, 
+        { 
+          height: tabBarHeight + (insets.bottom > 0 ? insets.bottom - 4 : 0), 
+          paddingBottom: insets.bottom 
+        }
+      ]}>
         <TouchableOpacity
           style={[styles.bottomTab, activeTab === 'home' && styles.bottomTabActive]}
           onPress={() => {
@@ -1505,7 +1520,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
           <Text style={[styles.bottomTabText, { fontSize: tabTextSize }, activeTab === 'sync' && styles.bottomTabTextActive]}>Sync</Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </View>
   );
 };
 
@@ -1573,7 +1588,7 @@ const styles = StyleSheet.create({
   tabContentWrapper: {
     flex: 1,
     padding: Theme.spacing.md,
-    marginBottom: 70,
+    marginBottom: 0,
   },
   tabHeaderTitle: {
     fontSize: 18,
