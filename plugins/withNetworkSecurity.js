@@ -7,9 +7,29 @@ function withNetworkSecurityXml(config) {
     'android',
     async (config) => {
       const resDir = path.join(config.modRequest.platformProjectRoot, 'app/src/main/res');
-      const xmlDir = path.join(resDir, 'xml');
       
-      // Ensure the directory exists
+      // 1. Copy the UCAM certificates to res/raw
+      const rawDir = path.join(resDir, 'raw');
+      if (!fs.existsSync(rawDir)) {
+        fs.mkdirSync(rawDir, { recursive: true });
+      }
+      
+      const certFiles = ['ucam_leaf.pem', 'ucam_intermediate.pem', 'ucam_root.pem'];
+      
+      for (const file of certFiles) {
+        const srcCertPath = path.join(config.modRequest.projectRoot, 'assets', file);
+        const destCertPath = path.join(rawDir, file);
+        
+        if (fs.existsSync(srcCertPath)) {
+          console.log(`[withNetworkSecurity] Copying certificate from ${srcCertPath} to ${destCertPath}`);
+          fs.copyFileSync(srcCertPath, destCertPath);
+        } else {
+          console.warn(`[withNetworkSecurity] Certificate not found at ${srcCertPath}!`);
+        }
+      }
+
+      // 2. Create the network_security_config.xml in res/xml
+      const xmlDir = path.join(resDir, 'xml');
       if (!fs.existsSync(xmlDir)) {
         fs.mkdirSync(xmlDir, { recursive: true });
       }
@@ -20,13 +40,20 @@ function withNetworkSecurityXml(config) {
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">ucam.uiu.ac.bd</domain>
         <trust-anchors>
+            <!-- Trust the bundled UCAM cert chain components -->
+            <certificates src="@raw/ucam_leaf" />
+            <certificates src="@raw/ucam_intermediate" />
+            <certificates src="@raw/ucam_root" />
             <certificates src="system" />
             <certificates src="user" />
         </trust-anchors>
     </domain-config>
-    <!-- Trust system and user certificates globally in fallback -->
+    <!-- Trust system, user, and bundled certs globally in fallback -->
     <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
+            <certificates src="@raw/ucam_leaf" />
+            <certificates src="@raw/ucam_intermediate" />
+            <certificates src="@raw/ucam_root" />
             <certificates src="system" />
             <certificates src="user" />
         </trust-anchors>
