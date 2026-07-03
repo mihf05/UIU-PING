@@ -55,6 +55,11 @@ export interface CourseHistoryItem {
   point: number;
 }
 
+export interface DetailedMarksItem {
+  itemName: string;
+  itemValue: string;
+}
+
 export interface PreRegistrationItem {
   sl: string;
   courseCode: string;
@@ -737,6 +742,186 @@ export const ScraperService = {
       console.error('[ScraperService] Billing scraping failed:', error);
       await StorageService.addScraperLog('error', `Billing scrape failed: ${error.message || error}`);
       throw error;
+    }
+  },
+
+  /**
+   * Scrapes item-wise marks detail for all courses registered in a session
+   */
+  async scrapeItemWiseDetailedMarks(calendarId?: string): Promise<Record<string, DetailedMarksItem[]>> {
+    try {
+      const authenticated = await AuthService.ensureAuthenticated();
+      if (!authenticated) {
+        throw new Error('User session could not be authenticated. Please log in again.');
+      }
+
+      // Step 0: Load initial page shell to extract __VIEWSTATE and __VIEWSTATEGENERATOR
+      const url = BASE_URL + 'Result/ItemWiseDetailsMarksForStudent.aspx?mmi=415d552c795d4d494e63';
+      const initialResponse = await fetch(url);
+      const initialHtml = await initialResponse.text();
+      let root = parse(initialHtml);
+
+      let targetCalendarId = calendarId;
+      if (!targetCalendarId) {
+        const batchOptions = root.querySelectorAll('select#ctl00_MainContainer_ddlAcaCalBatch option');
+        const latestOption = batchOptions.find(opt => opt.getAttribute('value') !== '0');
+        if (latestOption) {
+          targetCalendarId = latestOption.getAttribute('value') || '';
+          console.log(`[ScraperService] No calendarId specified. Dynamically selected latest: ${latestOption.text.trim()} [id=${targetCalendarId}]`);
+        }
+      }
+
+      if (!targetCalendarId) {
+        throw new Error('No academic calendar batch options available.');
+      }
+
+      console.log(`[ScraperService] Scraping detailed marks for academic calendar: ${targetCalendarId}...`);
+
+      let viewState = root.querySelector('#__VIEWSTATE')?.getAttribute('value') || '';
+      let viewStateGenerator = root.querySelector('#__VIEWSTATEGENERATOR')?.getAttribute('value') || '';
+
+      // Step 1: Perform postback for selecting academic calendar batch
+      const pb1 = new URLSearchParams();
+      pb1.append('__EVENTTARGET', 'ctl00$MainContainer$ddlAcaCalBatch');
+      pb1.append('__EVENTARGUMENT', '');
+      pb1.append('__LASTFOCUS', '');
+      pb1.append('__VIEWSTATE', viewState);
+      pb1.append('__VIEWSTATEGENERATOR', viewStateGenerator);
+      pb1.append('__VIEWSTATEENCRYPTED', '');
+      pb1.append('ctl00_ToolkitScriptManager1_HiddenField', '');
+      pb1.append('ctl00$MainContainer$ddlAcaCalBatch', targetCalendarId);
+      pb1.append('ctl00$MainContainer$ddlCourse', '0');
+
+      const pb1Response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Referer': url,
+          'Origin': BASE_URL.slice(0, -1)
+        },
+        body: pb1.toString()
+      });
+
+      const pb1Html = await pb1Response.text();
+      root = parse(pb1Html);
+
+      viewState = root.querySelector('#__VIEWSTATE')?.getAttribute('value') || '';
+      viewStateGenerator = root.querySelector('#__VIEWSTATEGENERATOR')?.getAttribute('value') || '';
+
+      // Get courses in the dropdown list
+      const courseOptions = root.querySelectorAll('select#ctl00_MainContainer_ddlCourse option');
+      const coursesToScrape: { id: string; name: string }[] = [];
+      courseOptions.forEach(opt => {
+        const val = opt.getAttribute('value');
+        if (val && val !== '0') {
+          coursesToScrape.push({
+            id: val,
+            name: opt.text.trim()
+          });
+        }
+      });
+
+      console.log(`[ScraperService] Found ${coursesToScrape.length} courses to scrape detailed marks for.`);
+      const results: Record<string, DetailedMarksItem[]> = {};
+
+      // Step 2: Loop through each course and perform course postback
+      for (const course of coursesToScrape) {
+        try {
+          console.log(`[ScraperService] Scraping marks for: ${course.name} [id=${course.id}]`);
+          const pb2 = new URLSearchParams();
+          pb2.append('__EVENTTARGET', 'ctl00$MainContainer$ddlCourse');
+          pb2.append('__EVENTARGUMENT', '');
+          pb2.append('__LASTFOCUS', '');
+          pb2.append('__VIEWSTATE', viewState);
+          pb2.append('__VIEWSTATEGENERATOR', viewStateGenerator);
+          pb2.append('__VIEWSTATEENCRYPTED', '');
+          pb2.append('ctl00_ToolkitScriptManager1_HiddenField', '');
+          pb2.append('ctl00$MainContainer$ddlAcaCalBatch', targetCalendarId);
+          pb2.append('ctl00$MainContainer$ddlCourse', course.id);
+
+          const pb2Response = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'Referer': url,
+              'Origin': BASE_URL.slice(0, -1)
+            },
+            body: pb2.toString()
+          });
+
+          const pb2Html = await pb2Response.text();
+          const pb2Root = parse(pb2Html);
+
+          // Update viewstate for subsequent requests
+          viewState = pb2Root.querySelector('#__VIEWSTATE')?.getAttribute('value') || viewState;
+          viewStateGenerator = pb2Root.querySelector('#__VIEWSTATEGENERATOR')?.getAttribute('value') || viewStateGenerator;
+
+          const markTable = pb2Root.querySelector('table#markTable');
+          if (markTable) {
+            const trs = markTable.querySelectorAll('tr');
+            if (trs.length >= 2) {
+              const headerRow = trs[0];
+              // Check if there is a secondary sub-header row (e.g. for Class Tests)
+              // We check if row 1 has elements (this matches Class Tests subheadings)
+              const hasSubHeader = trs.length >= 3 && trs[1].querySelectorAll('td, th').length > 0 && trs[2].querySelectorAll('td, th').length > 0;
+              const subHeaderRow = hasSubHeader ? trs[1] : null;
+              const dataRow = hasSubHeader ? trs[2] : trs[trs.length - 1]; // standard last row is the data values
+
+              const flatHeaders: string[] = [];
+              let subHeaderIndex = 0;
+
+              const headerCells = headerRow.querySelectorAll('th, td');
+              const subHeaderCells = subHeaderRow ? subHeaderRow.querySelectorAll('th, td') : [];
+
+              headerCells.forEach(cell => {
+                const title = cell.text.trim().replace(/\s+/g, ' ');
+                const colspan = parseInt(cell.getAttribute('colspan') || '1') || 1;
+                
+                if (colspan > 1 && subHeaderRow) {
+                  for (let c = 0; c < colspan; c++) {
+                    const subTitle = subHeaderCells[subHeaderIndex] ? subHeaderCells[subHeaderIndex].text.trim().replace(/\s+/g, ' ') : `Sub_${c}`;
+                    flatHeaders.push(`${title} (${subTitle})`);
+                    subHeaderIndex++;
+                  }
+                } else {
+                  flatHeaders.push(title);
+                }
+              });
+
+              // Map data cells to flat headers
+              const dataCells = dataRow.querySelectorAll('td, th');
+              const items: DetailedMarksItem[] = [];
+
+              dataCells.forEach((cell, cellIdx) => {
+                const header = flatHeaders[cellIdx] || `Field_${cellIdx}`;
+                const val = cell.text.trim().replace(/\s+/g, ' ');
+                items.push({
+                  itemName: header,
+                  itemValue: val
+                });
+              });
+
+              // Extract clean course code from name e.g. "CSE 1111: CSE 1111: Structured Programming Language (B) 3.00" -> "CSE 1111"
+              let courseCode = course.name;
+              if (course.name.includes(':')) {
+                courseCode = course.name.split(':')[0].trim();
+              }
+              
+              results[courseCode] = items;
+              console.log(`[ScraperService] Scraped ${items.length} marks items for ${courseCode}.`);
+            }
+          }
+        } catch (courseError) {
+          console.error(`[ScraperService] Failed to scrape marks for course ${course.name}:`, courseError);
+        }
+      }
+
+      await StorageService.addScraperLog('success', `Scraped item-wise detailed marks: ${Object.keys(results).join(', ')}`);
+      return results;
+    } catch (e: any) {
+      console.error('[ScraperService] Detailed marks scraping failed:', e);
+      await StorageService.addScraperLog('error', `Detailed marks scrape failed: ${e.message || e}`);
+      return {};
     }
   }
 };

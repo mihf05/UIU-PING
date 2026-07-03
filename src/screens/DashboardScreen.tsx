@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { Theme } from '../components/Theme';
 import { CustomButton } from '../components/CustomButton';
-import { ScraperService, NoticeItem, ResultSummaryItem, AttendanceSummaryItem, RoutineItem, CourseHistoryItem, PreRegistrationItem, BillingDetails, BillTransaction } from '../api/scraper';
+import { ScraperService, NoticeItem, ResultSummaryItem, AttendanceSummaryItem, RoutineItem, CourseHistoryItem, PreRegistrationItem, BillingDetails, BillTransaction, DetailedMarksItem } from '../api/scraper';
 import { StorageService, ScraperLog } from '../services/storage';
 import { BackgroundService } from '../services/background';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -107,6 +107,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
   const [attendance, setAttendance] = useState<AttendanceSummaryItem[]>([]);
   const [routine, setRoutine] = useState<RoutineItem[]>([]);
   const [courseHistory, setCourseHistory] = useState<CourseHistoryItem[]>([]);
+  const [detailedMarks, setDetailedMarks] = useState<Record<string, DetailedMarksItem[]>>({});
+  const [expandedCourses, setExpandedCourses] = useState<Record<string, boolean>>({});
   const [preRegistration, setPreRegistration] = useState<PreRegistrationItem[]>([]);
   const [billing, setBilling] = useState<BillingDetails | null>(null);
   const [logs, setLogs] = useState<ScraperLog[]>([]);
@@ -142,6 +144,112 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
     }
   };
 
+  useEffect(() => {
+    if (!isOnline || !studentId) return;
+
+    console.log('[DashboardScreen] Initializing foreground live poller (3-minute interval)...');
+    
+    const pollInterval = setInterval(async () => {
+      try {
+        console.log('[DashboardScreen] Polling UCAM for real-time changes...');
+        const credentials = await StorageService.getCredentials();
+        if (!credentials) return;
+
+        // Fetch fresh notices
+        const freshNotices = await ScraperService.scrapeNotices();
+        const previousNotices = await StorageService.getNoticeState() || [];
+        if (freshNotices.length > 0 && previousNotices.length > 0) {
+          const hasNewNotice = !previousNotices.some((p: any) => p.id === freshNotices[0].id);
+          if (hasNewNotice) {
+            await NotificationService.triggerLocalNotification(
+              'New Notice Published on UCAM! 🔔',
+              freshNotices[0].title,
+              { type: 'notice', id: freshNotices[0].id }
+            );
+            setNotices(freshNotices);
+            await StorageService.saveNoticeState(freshNotices);
+          }
+        }
+
+        // Fetch fresh results
+        const freshResults = await ScraperService.scrapeResultSummary(credentials.studentId);
+        const previousResults = await StorageService.getResultHistory() || [];
+        if (freshResults.length > 0 && previousResults.length > 0) {
+          const latestResult = freshResults[0];
+          const prevMatched = previousResults.find((p: any) => p.semesterId === latestResult.semesterId);
+          if (!prevMatched || prevMatched.gpa !== latestResult.gpa || prevMatched.cgpa !== latestResult.cgpa) {
+            await NotificationService.triggerLocalNotification(
+              'Trimester Result Updated! 🎓',
+              `GPA: ${latestResult.gpa} (CGPA: ${latestResult.cgpa}) for ${latestResult.semesterName} ${latestResult.year}`
+            );
+            setResults(freshResults);
+            await StorageService.saveResultHistory(freshResults);
+          }
+        }
+
+        // Fetch fresh billing balance
+        const freshBilling = await ScraperService.scrapeBillingDetails();
+        const previousBilling = await StorageService.getBillingDetails();
+        if (freshBilling && previousBilling && freshBilling.balance !== previousBilling.balance) {
+          await NotificationService.triggerLocalNotification(
+            'Billing Ledger Updated! 💰',
+            `Outstanding Balance changed to: ৳${freshBilling.balance}`
+          );
+          setBilling(freshBilling);
+          await StorageService.saveBillingDetails(freshBilling);
+        }
+
+        // Fetch fresh course history
+        const freshHistory = await ScraperService.scrapeCourseHistory();
+        const previousHistory = await StorageService.getCourseHistory() || [];
+        if (freshHistory.length > 0 && previousHistory.length > 0) {
+          const gradeUpdates: string[] = [];
+          for (const curr of freshHistory) {
+            const prev = previousHistory.find((p: any) => p.courseCode === curr.courseCode && p.semesterCode === curr.semesterCode);
+            if (!prev || prev.grade !== curr.grade) {
+              gradeUpdates.push(`${curr.courseCode} (${curr.grade})`);
+            }
+          }
+          if (gradeUpdates.length > 0) {
+            await NotificationService.triggerLocalNotification(
+              'Detailed Grade Released! 📝',
+              `Course grades updated: ${gradeUpdates.join(', ')}`
+            );
+            setCourseHistory(freshHistory);
+            await StorageService.saveCourseHistory(freshHistory);
+          }
+        }
+
+        // Fetch fresh item-wise detailed marks
+        const freshDetailedMarks = await ScraperService.scrapeItemWiseDetailedMarks();
+        const previousDetailedMarks = await StorageService.getDetailedMarks() || {};
+        
+        let marksUpdated = false;
+        for (const [code, items] of Object.entries(freshDetailedMarks)) {
+          const prevItems = previousDetailedMarks[code] || [];
+          if (JSON.stringify(items) !== JSON.stringify(prevItems)) {
+            marksUpdated = true;
+            break;
+          }
+        }
+
+        if (marksUpdated) {
+          await NotificationService.triggerLocalNotification(
+            'Evaluation Marks Updated! 🎯',
+            'UCAM has published updates to your item-wise class evaluations.'
+          );
+          setDetailedMarks(freshDetailedMarks);
+          await StorageService.saveDetailedMarks(freshDetailedMarks);
+        }
+
+      } catch (pollErr) {
+        console.log('[DashboardScreen] Foreground poller sync encounter:', pollErr);
+      }
+    }, 180000); // 3 minutes = 180,000 ms
+
+    return () => clearInterval(pollInterval);
+  }, [isOnline, studentId]);
+
   const loadCachedData = async () => {
     try {
       const credentials = await StorageService.getCredentials();
@@ -154,6 +262,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
       const cachedAttendance = await StorageService.getAttendanceHistory() || [];
       const cachedRoutine = await StorageService.getRoutine() || [];
       const cachedHistory = await StorageService.getCourseHistory() || [];
+      const cachedDetailedMarks = await StorageService.getDetailedMarks() || {};
       const cachedPreReg = await StorageService.getPreRegistration() || [];
       const cachedBilling = await StorageService.getBillingDetails();
       const cachedLogs = await StorageService.getScraperLogs() || [];
@@ -164,6 +273,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
       setAttendance(cachedAttendance);
       setRoutine(cachedRoutine);
       setCourseHistory(cachedHistory);
+      setDetailedMarks(cachedDetailedMarks);
       setPreRegistration(cachedPreReg);
       setBilling(cachedBilling);
       setLogs(cachedLogs);
@@ -211,6 +321,10 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
       const scrapedPreReg = await ScraperService.scrapePreRegistrationList();
       setPreRegistration(scrapedPreReg);
       await StorageService.savePreRegistration(scrapedPreReg);
+
+      const scrapedDetailedMarks = await ScraperService.scrapeItemWiseDetailedMarks();
+      setDetailedMarks(scrapedDetailedMarks);
+      await StorageService.saveDetailedMarks(scrapedDetailedMarks);
 
       await StorageService.saveLastRunTimestamp();
       setLastRun(new Date().toLocaleString());
@@ -274,6 +388,11 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
       const scrapedPreReg = await ScraperService.scrapePreRegistrationList();
       setPreRegistration(scrapedPreReg);
       await StorageService.savePreRegistration(scrapedPreReg);
+
+      // 8. Scrape Detailed Item-wise Marks
+      const scrapedDetailedMarks = await ScraperService.scrapeItemWiseDetailedMarks();
+      setDetailedMarks(scrapedDetailedMarks);
+      await StorageService.saveDetailedMarks(scrapedDetailedMarks);
 
       // Save execution metadata
       await StorageService.saveLastRunTimestamp();
@@ -931,21 +1050,51 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
           {filteredHistory.length === 0 ? (
             <Text style={styles.emptyText}>No letter grades parsed for this selection. Run manual synchronization.</Text>
           ) : (
-            filteredHistory.map((item, idx) => (
-              <View key={idx} style={styles.courseHistoryRow}>
-                <View style={styles.courseHistoryMain}>
-                  <Text style={styles.courseHistoryCode}>{item.courseCode}</Text>
-                  <Text style={styles.courseHistoryTitle} numberOfLines={1}>{item.courseTitle}</Text>
-                  <Text style={styles.courseHistoryCredits}>
-                    {item.credits} Credits • Trimester {getSemesterNameFromCode(item.semesterCode)}
-                  </Text>
+            filteredHistory.map((item, idx) => {
+              const isExpanded = !!expandedCourses[item.courseCode];
+              const marks = detailedMarks[item.courseCode] || [];
+              return (
+                <View key={idx} style={styles.courseHistoryRowContainer}>
+                  <TouchableOpacity
+                    style={styles.courseHistoryRow}
+                    onPress={() => setExpandedCourses(prev => ({ ...prev, [item.courseCode]: !prev[item.courseCode] }))}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.courseHistoryMain}>
+                      <Text style={styles.courseHistoryCode}>
+                        {item.courseCode} {isExpanded ? '▼' : '▶'}
+                      </Text>
+                      <Text style={styles.courseHistoryTitle} numberOfLines={1}>{item.courseTitle}</Text>
+                      <Text style={styles.courseHistoryCredits}>
+                        {item.credits} Credits • Trimester {getSemesterNameFromCode(item.semesterCode)}
+                      </Text>
+                    </View>
+                    <View style={styles.courseHistoryGradeBox}>
+                      <Text style={styles.courseHistoryGradeText}>{item.grade}</Text>
+                      <Text style={styles.courseHistoryPointsText}>{item.point.toFixed(2)}</Text>
+                    </View>
+                  </TouchableOpacity>
+                  
+                  {isExpanded && (
+                    <View style={styles.expandedMarksContainer}>
+                      <Text style={styles.marksSplitTitle}>Evaluation Marks Splits</Text>
+                      {marks.length === 0 ? (
+                        <Text style={styles.emptyMarksText}>
+                          No detailed marks split cached. Tap Sync at the header to fetch from UCAM.
+                        </Text>
+                      ) : (
+                        marks.map((mark, mIdx) => (
+                          <View key={mIdx} style={styles.markItemRow}>
+                            <Text style={styles.markItemName}>{mark.itemName}</Text>
+                            <Text style={styles.markItemValue}>{mark.itemValue}</Text>
+                          </View>
+                        ))
+                      )}
+                    </View>
+                  )}
                 </View>
-                <View style={styles.courseHistoryGradeBox}>
-                  <Text style={styles.courseHistoryGradeText}>{item.grade}</Text>
-                  <Text style={styles.courseHistoryPointsText}>{item.point.toFixed(2)}</Text>
-                </View>
-              </View>
-            ))
+              );
+            })
           )}
         </View>
       </ScrollView>
@@ -1963,6 +2112,50 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: Theme.colors.textMuted,
     marginTop: 2,
+  },
+  courseHistoryRowContainer: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#151C2C',
+  },
+  expandedMarksContainer: {
+    backgroundColor: '#0F1524',
+    padding: Theme.spacing.md,
+    borderRadius: Theme.roundness.small,
+    marginTop: Theme.spacing.xs,
+    marginBottom: Theme.spacing.sm,
+    borderColor: '#1D253B',
+    borderWidth: 1,
+  },
+  marksSplitTitle: {
+    fontSize: 11,
+    fontFamily: Theme.fonts.bold,
+    color: Theme.colors.textPrimary,
+    marginBottom: Theme.spacing.xs,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  markItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#1A2338',
+  },
+  markItemName: {
+    fontSize: 11,
+    color: Theme.colors.textSecondary,
+    flex: 1,
+    paddingRight: Theme.spacing.xs,
+  },
+  markItemValue: {
+    fontSize: 11,
+    fontFamily: Theme.fonts.medium,
+    color: Theme.colors.primary,
+  },
+  emptyMarksText: {
+    fontSize: 10,
+    color: Theme.colors.textMuted,
+    fontStyle: 'italic',
   },
   modalBackdrop: {
     flex: 1,

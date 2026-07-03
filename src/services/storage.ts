@@ -298,6 +298,25 @@ export const StorageService = {
     }
   },
 
+  // --- AsyncStorage: Detailed Marks Split ---
+  async saveDetailedMarks(state: any): Promise<void> {
+    try {
+      await AsyncStorage.setItem('ucam_item_wise_marks', JSON.stringify(state));
+    } catch (error) {
+      console.error('[StorageService] Error saving detailed marks:', error);
+    }
+  },
+
+  async getDetailedMarks(): Promise<any | null> {
+    try {
+      const state = await AsyncStorage.getItem('ucam_item_wise_marks');
+      return state ? JSON.parse(state) : null;
+    } catch (error) {
+      console.error('[StorageService] Error reading detailed marks:', error);
+      return null;
+    }
+  },
+
   // Clear all states (Logout helper)
   async clearAllState(): Promise<void> {
     try {
@@ -314,6 +333,7 @@ export const StorageService = {
       await AsyncStorage.removeItem('ucam_course_history_details');
       await AsyncStorage.removeItem('ucam_pre_registration');
       await AsyncStorage.removeItem('ucam_billing_details');
+      await AsyncStorage.removeItem('ucam_item_wise_marks');
       console.log('[StorageService] All storage states cleared.');
     } catch (error) {
       console.error('[StorageService] Error clearing all states:', error);
