@@ -12,7 +12,8 @@ import {
   Alert,
   Dimensions,
   Modal,
-  useWindowDimensions
+  useWindowDimensions,
+  ActivityIndicator
 } from 'react-native';
 import { Theme } from '../components/Theme';
 import { CustomButton } from '../components/CustomButton';
@@ -113,6 +114,13 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
   const [billing, setBilling] = useState<BillingDetails | null>(null);
   const [logs, setLogs] = useState<ScraperLog[]>([]);
   const [lastRun, setLastRun] = useState<string | null>(null);
+
+  // Academic Calendar & Picker States
+  const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
+  const [expandedCalendar, setExpandedCalendar] = useState<boolean>(false);
+  const [calendarBatches, setCalendarBatches] = useState<any[]>([]);
+  const [loadingDetailedMarks, setLoadingDetailedMarks] = useState<boolean>(false);
+  const [showSemesterDropdown, setShowSemesterDropdown] = useState<boolean>(false);
 
   useEffect(() => {
     loadCachedData();
@@ -267,6 +275,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
       const cachedBilling = await StorageService.getBillingDetails();
       const cachedLogs = await StorageService.getScraperLogs() || [];
       const savedLastRun = await StorageService.getLastRunTimestamp();
+      const cachedCalendar = await StorageService.getCalendarEvents() || [];
+      const cachedBatches = await StorageService.getCalendarBatches() || [];
 
       setNotices(cachedNotices);
       setResults(cachedResults);
@@ -277,6 +287,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
       setPreRegistration(cachedPreReg);
       setBilling(cachedBilling);
       setLogs(cachedLogs);
+      setCalendarEvents(cachedCalendar);
+      setCalendarBatches(cachedBatches);
       
       if (savedLastRun) {
         setLastRun(new Date(savedLastRun).toLocaleString());
@@ -286,6 +298,71 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
       setBackgroundFetchEnabled(isBgRegistered);
     } catch (e) {
       console.error('[DashboardScreen] Error loading cache:', e);
+    }
+  };
+
+  useEffect(() => {
+    loadDetailedMarksForSelectedSemester(selectedSemesterCode);
+  }, [selectedSemesterCode]);
+
+  const loadDetailedMarksForSelectedSemester = async (semesterCode: string) => {
+    if (semesterCode === 'all') {
+      const cachedLatest = await StorageService.getDetailedMarks() || {};
+      setDetailedMarks(cachedLatest);
+      return;
+    }
+
+    setLoadingDetailedMarks(true);
+    try {
+      const cachedMarks = await StorageService.getDetailedMarksForSemester(semesterCode);
+      if (cachedMarks && Object.keys(cachedMarks).length > 0) {
+        console.log(`[DashboardScreen] Loaded cached detailed marks for semester ${semesterCode}`);
+        setDetailedMarks(cachedMarks);
+        setLoadingDetailedMarks(false);
+        return;
+      }
+
+      if (!isOnline) {
+        Alert.alert('Offline Mode', 'Cannot load detailed marks for previous trimesters without internet connection.');
+        setDetailedMarks({});
+        setLoadingDetailedMarks(false);
+        return;
+      }
+
+      console.log(`[DashboardScreen] Fetching detailed marks online for semester ${semesterCode}...`);
+      
+      let batchId = '';
+      const match = calendarBatches.find((b: any) => b.code === semesterCode);
+      if (match) {
+        batchId = match.value;
+      } else {
+        const freshBatches = await ScraperService.scrapeCalendarBatches();
+        setCalendarBatches(freshBatches);
+        await StorageService.saveCalendarBatches(freshBatches);
+        
+        const secondMatch = freshBatches.find((b: any) => b.code === semesterCode);
+        if (secondMatch) {
+          batchId = secondMatch.value;
+        }
+      }
+
+      if (!batchId) {
+        console.warn(`[DashboardScreen] No calendar batch ID mapped for semester ${semesterCode}`);
+        setDetailedMarks({});
+        setLoadingDetailedMarks(false);
+        return;
+      }
+
+      const scrapedMarks = await ScraperService.scrapeItemWiseDetailedMarks(batchId);
+      setDetailedMarks(scrapedMarks);
+      await StorageService.saveDetailedMarksForSemester(semesterCode, scrapedMarks);
+      await StorageService.addScraperLog('info', `Detailed marks loaded online for semester ${semesterCode}.`);
+    } catch (err: any) {
+      console.error('[DashboardScreen] Failed to load detailed marks for semester:', err);
+      Alert.alert('Load Failed', 'Failed to retrieve detailed marks from UCAM.');
+      setDetailedMarks({});
+    } finally {
+      setLoadingDetailedMarks(false);
     }
   };
 
@@ -325,6 +402,24 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
       const scrapedDetailedMarks = await ScraperService.scrapeItemWiseDetailedMarks();
       setDetailedMarks(scrapedDetailedMarks);
       await StorageService.saveDetailedMarks(scrapedDetailedMarks);
+
+      // Scrape academic calendar
+      try {
+        const scrapedCalendar = await ScraperService.scrapeAcademicCalendar();
+        setCalendarEvents(scrapedCalendar);
+        await StorageService.saveCalendarEvents(scrapedCalendar);
+      } catch (err) {
+        console.error('[DashboardScreen] Silent sync calendar scrape failed:', err);
+      }
+
+      // Scrape calendar batches mapping
+      try {
+        const scrapedBatches = await ScraperService.scrapeCalendarBatches();
+        setCalendarBatches(scrapedBatches);
+        await StorageService.saveCalendarBatches(scrapedBatches);
+      } catch (err) {
+        console.error('[DashboardScreen] Silent sync calendar batches mapping scrape failed:', err);
+      }
 
       await StorageService.saveLastRunTimestamp();
       setLastRun(new Date().toLocaleString());
@@ -394,6 +489,24 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
       setDetailedMarks(scrapedDetailedMarks);
       await StorageService.saveDetailedMarks(scrapedDetailedMarks);
 
+      // 9. Scrape Academic Calendar
+      try {
+        const scrapedCalendar = await ScraperService.scrapeAcademicCalendar();
+        setCalendarEvents(scrapedCalendar);
+        await StorageService.saveCalendarEvents(scrapedCalendar);
+      } catch (err: any) {
+        console.error('[DashboardScreen] Manual sync academic calendar scrape failed:', err);
+      }
+
+      // 10. Scrape Calendar Batches Mapping
+      try {
+        const scrapedBatches = await ScraperService.scrapeCalendarBatches();
+        setCalendarBatches(scrapedBatches);
+        await StorageService.saveCalendarBatches(scrapedBatches);
+      } catch (err: any) {
+        console.error('[DashboardScreen] Manual sync calendar batches mapping scrape failed:', err);
+      }
+
       // Save execution metadata
       await StorageService.saveLastRunTimestamp();
       const newTimestamp = new Date().toLocaleString();
@@ -424,9 +537,9 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
   const handleToggleBackground = async (value: boolean) => {
     try {
       if (value) {
-        await BackgroundService.registerTask(3600);
+        await BackgroundService.registerTask(900);
         setBackgroundFetchEnabled(true);
-        Alert.alert('Background Sync Enabled', 'App will periodically scrape and notify on GPA/notice updates.');
+        Alert.alert('Background Sync Enabled', 'App will periodically scrape and notify on GPA, notice, routine, and calendar updates.');
       } else {
         await BackgroundService.unregisterTask();
         setBackgroundFetchEnabled(false);
@@ -688,6 +801,156 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
     );
   };
 
+  const renderAcademicCalendarCard = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    let startDate = new Date();
+    let endDate = new Date();
+    let foundStart = false;
+    let foundEnd = false;
+
+    calendarEvents.forEach(event => {
+      const titleLower = event.title.toLowerCase();
+      if (titleLower.includes('classes begin')) {
+        const yearMatch = event.date.match(/\d{4}/);
+        const year = yearMatch ? yearMatch[0] : today.getFullYear().toString();
+        const dateParts = event.date.split(/[-–—]/);
+        let startPart = dateParts[0].trim();
+        if (!startPart.includes(year)) {
+          startPart = `${startPart}, ${year}`;
+        }
+        const d = new Date(startPart);
+        if (!isNaN(d.getTime())) {
+          startDate = d;
+          foundStart = true;
+        }
+      }
+      if (titleLower.includes('final exam')) {
+        const yearMatch = event.date.match(/\d{4}/);
+        const year = yearMatch ? yearMatch[0] : today.getFullYear().toString();
+        const dateParts = event.date.split(/[-–—]/);
+        let startPart = dateParts[0].trim();
+        if (!startPart.includes(year)) {
+          startPart = `${startPart}, ${year}`;
+        }
+        const d = new Date(startPart);
+        if (!isNaN(d.getTime())) {
+          endDate = d;
+          foundEnd = true;
+        }
+      }
+    });
+
+    if (!foundStart) {
+      startDate = new Date(today.getFullYear(), today.getMonth(), 1);
+    }
+    if (!foundEnd) {
+      endDate = new Date(startDate.getTime() + 105 * 24 * 60 * 60 * 1000);
+    }
+
+    const totalDuration = endDate.getTime() - startDate.getTime();
+    const elapsed = today.getTime() - startDate.getTime();
+    let progressPercent = 0;
+    if (totalDuration > 0) {
+      progressPercent = Math.min(100, Math.max(0, Math.round((elapsed / totalDuration) * 100)));
+    }
+
+    const upcomingEvents = calendarEvents.filter(e => e.daysLeft >= 0);
+    const nextEvent = upcomingEvents[0];
+
+    const getBadgeStyle = (type: string) => {
+      switch (type) {
+        case 'exam':
+          return { backgroundColor: '#3A1E1C', color: '#FF7043' };
+        case 'holiday':
+          return { backgroundColor: '#1C312E', color: '#4CAF50' };
+        default:
+          return { backgroundColor: '#1B2C3F', color: '#42A5F5' };
+      }
+    };
+
+    return (
+      <View style={styles.card}>
+        <View style={styles.paymentCardHeader}>
+          <View style={[styles.iconCircle, { backgroundColor: '#1F2937' }]}>
+            <CustomIcon name="calendar" size={16} color={Theme.colors.primary} />
+          </View>
+          <Text style={styles.cardTitleText}>Trimester Calendar & Progress</Text>
+        </View>
+
+        <View style={styles.calendarProgressContainer}>
+          <View style={styles.calendarProgressLabels}>
+            <Text style={styles.calendarProgressLabelText}>Trimester Progress</Text>
+            <Text style={styles.calendarProgressValueText}>{progressPercent}%</Text>
+          </View>
+          <View style={styles.calendarProgressBarOutline}>
+            <View style={[styles.calendarProgressBarFill, { width: `${progressPercent}%` }]} />
+          </View>
+          <View style={styles.calendarProgressDates}>
+            <Text style={styles.calendarProgressDateText}>Start: {startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</Text>
+            <Text style={styles.calendarProgressDateText}>End: {endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</Text>
+          </View>
+        </View>
+
+        {nextEvent ? (
+          <View style={styles.nextEventHighlightCard}>
+            <View style={styles.nextEventInfo}>
+              <Text style={styles.nextEventLabel}>NEXT UPCOMING EVENT</Text>
+              <Text style={styles.nextEventTitle} numberOfLines={1}>{nextEvent.title}</Text>
+              <Text style={styles.nextEventDate}>{nextEvent.date}</Text>
+            </View>
+            <View style={[styles.nextEventDaysBadge, { backgroundColor: getBadgeStyle(nextEvent.type).backgroundColor }]}>
+              <Text style={[styles.nextEventDaysText, { color: getBadgeStyle(nextEvent.type).color }]}>
+                {nextEvent.daysLeft === 0 ? 'Today' : nextEvent.daysLeft === 1 ? 'Tomorrow' : `in ${nextEvent.daysLeft} days`}
+              </Text>
+            </View>
+          </View>
+        ) : (
+          <Text style={styles.emptyText}>No upcoming events cached. Run manual synchronization to scrape.</Text>
+        )}
+
+        {upcomingEvents.length > 0 && (
+          <View style={styles.expandableCalendarSection}>
+            <TouchableOpacity
+              style={styles.expandCalendarToggleBtn}
+              onPress={() => setExpandedCalendar(!expandedCalendar)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.expandCalendarToggleText}>
+                {expandedCalendar ? 'Collapse Calendar Events ▲' : 'Expand Calendar Events ▼'}
+              </Text>
+            </TouchableOpacity>
+
+            {expandedCalendar && (
+              <View style={styles.calendarEventsList}>
+                {upcomingEvents.map((event, idx) => {
+                  const badge = getBadgeStyle(event.type);
+                  return (
+                    <View key={idx} style={styles.calendarEventRow}>
+                      <View style={styles.calendarEventLeft}>
+                        <Text style={styles.calendarEventTitle} numberOfLines={1}>{event.title}</Text>
+                        <Text style={styles.calendarEventDateText}>{event.date}</Text>
+                      </View>
+                      <View style={styles.calendarEventRight}>
+                        <View style={[styles.calendarEventTypeBadge, { backgroundColor: badge.backgroundColor }]}>
+                          <Text style={[styles.calendarEventTypeText, { color: badge.color }]}>{event.type.toUpperCase()}</Text>
+                        </View>
+                        <Text style={styles.calendarEventDaysLeftText}>
+                          {event.daysLeft === 0 ? 'Today' : event.daysLeft === 1 ? '1 day left' : `${event.daysLeft} days left`}
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+        )}
+      </View>
+    );
+  };
+
   const renderHomeTab = () => (
     <ScrollView style={[styles.tabContentWrapper, { marginBottom: tabBarHeight + insets.bottom }]} showsVerticalScrollIndicator={false}>
       {/* Mini Profile / CGPA Card */}
@@ -825,6 +1088,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
           })
         )}
       </View>
+
+      {renderAcademicCalendarCard()}
     </ScrollView>
   );
 
@@ -998,31 +1263,71 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
           </View>
         )}
 
-        {/* Trimester Selector Chips */}
-        <View style={styles.chipsWrapper}>
-          <Text style={styles.selectorLabel}>Filter by Trimester</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll}>
-            <TouchableOpacity
-              style={[styles.chip, selectedSemesterCode === 'all' && styles.chipActive]}
-              onPress={() => setSelectedSemesterCode('all')}
-            >
-              <Text style={[styles.chipText, selectedSemesterCode === 'all' && styles.chipTextActive]}>
-                All Trimesters
-              </Text>
-            </TouchableOpacity>
+        {/* Trimester Selector Dropdown */}
+        <View style={styles.dropdownWrapper}>
+          <Text style={styles.selectorLabel}>Select Trimester</Text>
+          <TouchableOpacity
+            style={styles.dropdownButton}
+            onPress={() => setShowSemesterDropdown(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.dropdownButtonText}>
+              {selectedSemesterCode === 'all' 
+                ? 'All Trimesters' 
+                : `${getSemesterNameFromCode(selectedSemesterCode)} (${selectedSemesterCode})`}
+            </Text>
+            <Text style={styles.dropdownButtonArrow}>▼</Text>
+          </TouchableOpacity>
 
-            {semesterCodes.map(code => (
-              <TouchableOpacity
-                key={code}
-                style={[styles.chip, selectedSemesterCode === code && styles.chipActive]}
-                onPress={() => setSelectedSemesterCode(code)}
-              >
-                <Text style={[styles.chipText, selectedSemesterCode === code && styles.chipTextActive]}>
-                  {getSemesterNameFromCode(code)} ({code})
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+          <Modal
+            visible={showSemesterDropdown}
+            transparent={true}
+            animationType="fade"
+            onRequestClose={() => setShowSemesterDropdown(false)}
+          >
+            <TouchableOpacity 
+              style={styles.modalOverlay} 
+              activeOpacity={1} 
+              onPress={() => setShowSemesterDropdown(false)}
+            >
+              <View style={styles.dropdownModalContent}>
+                <View style={styles.dropdownModalHeader}>
+                  <Text style={styles.dropdownModalTitle}>Select Academic Trimester</Text>
+                  <TouchableOpacity onPress={() => setShowSemesterDropdown(false)}>
+                    <Text style={styles.dropdownModalClose}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+                <ScrollView style={styles.dropdownOptionsList} showsVerticalScrollIndicator={false}>
+                  <TouchableOpacity
+                    style={[styles.dropdownOption, selectedSemesterCode === 'all' && styles.dropdownOptionActive]}
+                    onPress={() => {
+                      setSelectedSemesterCode('all');
+                      setShowSemesterDropdown(false);
+                    }}
+                  >
+                    <Text style={[styles.dropdownOptionText, selectedSemesterCode === 'all' && styles.dropdownOptionTextActive]}>
+                      All Trimesters
+                    </Text>
+                  </TouchableOpacity>
+
+                  {semesterCodes.map(code => (
+                    <TouchableOpacity
+                      key={code}
+                      style={[styles.dropdownOption, selectedSemesterCode === code && styles.dropdownOptionActive]}
+                      onPress={() => {
+                        setSelectedSemesterCode(code);
+                        setShowSemesterDropdown(false);
+                      }}
+                    >
+                      <Text style={[styles.dropdownOptionText, selectedSemesterCode === code && styles.dropdownOptionTextActive]}>
+                        {getSemesterNameFromCode(code)} ({code})
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            </TouchableOpacity>
+          </Modal>
         </View>
 
         {/* Selected Trimester GPA / CGPA Summary Box */}
@@ -1078,9 +1383,11 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onLogout }) =>
                   {isExpanded && (
                     <View style={styles.expandedMarksContainer}>
                       <Text style={styles.marksSplitTitle}>Evaluation Marks Splits</Text>
-                      {marks.length === 0 ? (
+                      {loadingDetailedMarks ? (
+                        <ActivityIndicator size="small" color={Theme.colors.primary} style={{ marginVertical: 12 }} />
+                      ) : marks.length === 0 ? (
                         <Text style={styles.emptyMarksText}>
-                          No detailed marks split cached. Tap Sync at the header to fetch from UCAM.
+                          No detailed marks split cached. Ensure you are connected to the internet to load details.
                         </Text>
                       ) : (
                         marks.map((mark, mIdx) => (
@@ -2402,5 +2709,238 @@ const styles = StyleSheet.create({
   ledgerSemester: {
     fontSize: 9,
     color: Theme.colors.textMuted,
+  },
+
+  // --- Results Dropdown Picker ---
+  dropdownWrapper: {
+    marginHorizontal: Theme.spacing.md,
+    marginTop: Theme.spacing.sm,
+    marginBottom: Theme.spacing.xs,
+  },
+  dropdownButton: {
+    backgroundColor: '#0F1624',
+    borderWidth: 1,
+    borderColor: '#1F2E45',
+    borderRadius: 8,
+    paddingHorizontal: Theme.spacing.md,
+    paddingVertical: Theme.spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 6,
+  },
+  dropdownButtonText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontFamily: Theme.fonts.bold,
+  },
+  dropdownButtonArrow: {
+    color: Theme.colors.primary,
+    fontSize: 12,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dropdownModalContent: {
+    backgroundColor: '#0A0F1D',
+    borderWidth: 1,
+    borderColor: '#1E2D4A',
+    borderRadius: 12,
+    width: '85%',
+    maxHeight: '60%',
+    padding: Theme.spacing.md,
+  },
+  dropdownModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#162035',
+    paddingBottom: Theme.spacing.sm,
+    marginBottom: Theme.spacing.sm,
+  },
+  dropdownModalTitle: {
+    color: '#FFF',
+    fontSize: 15,
+    fontFamily: Theme.fonts.bold,
+  },
+  dropdownModalClose: {
+    color: Theme.colors.textMuted,
+    fontSize: 16,
+    padding: 4,
+  },
+  dropdownOptionsList: {
+    width: '100%',
+  },
+  dropdownOption: {
+    paddingVertical: Theme.spacing.sm,
+    paddingHorizontal: Theme.spacing.md,
+    borderRadius: 6,
+    marginBottom: 4,
+  },
+  dropdownOptionActive: {
+    backgroundColor: '#11223A',
+  },
+  dropdownOptionText: {
+    color: Theme.colors.textMuted,
+    fontSize: 14,
+  },
+  dropdownOptionTextActive: {
+    color: Theme.colors.primary,
+    fontFamily: Theme.fonts.bold,
+  },
+
+  // --- Academic Calendar & Progress Widget ---
+  calendarProgressContainer: {
+    marginVertical: Theme.spacing.sm,
+    backgroundColor: '#0B0F1A',
+    borderRadius: 8,
+    padding: Theme.spacing.sm,
+    borderWidth: 0.5,
+    borderColor: '#1A253E',
+  },
+  calendarProgressLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  calendarProgressLabelText: {
+    color: Theme.colors.textMuted,
+    fontSize: 11,
+    fontFamily: Theme.fonts.bold,
+  },
+  calendarProgressValueText: {
+    color: Theme.colors.primary,
+    fontSize: 11,
+    fontFamily: Theme.fonts.bold,
+  },
+  calendarProgressBarOutline: {
+    height: 6,
+    backgroundColor: '#152033',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  calendarProgressBarFill: {
+    height: '100%',
+    backgroundColor: Theme.colors.primary,
+    borderRadius: 3,
+  },
+  calendarProgressDates: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 6,
+  },
+  calendarProgressDateText: {
+    color: Theme.colors.textMuted,
+    fontSize: 9,
+  },
+  nextEventHighlightCard: {
+    backgroundColor: '#0F1626',
+    borderWidth: 1,
+    borderColor: '#1E2D4A',
+    borderRadius: 8,
+    padding: Theme.spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginVertical: Theme.spacing.xs,
+  },
+  nextEventInfo: {
+    flex: 1,
+    marginRight: Theme.spacing.sm,
+  },
+  nextEventLabel: {
+    color: Theme.colors.primary,
+    fontSize: 9,
+    fontFamily: Theme.fonts.bold,
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  nextEventTitle: {
+    color: '#FFF',
+    fontSize: 13,
+    fontFamily: Theme.fonts.bold,
+    marginBottom: 2,
+  },
+  nextEventDate: {
+    color: Theme.colors.textMuted,
+    fontSize: 10,
+  },
+  nextEventDaysBadge: {
+    borderRadius: 12,
+    paddingHorizontal: Theme.spacing.sm,
+    paddingVertical: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nextEventDaysText: {
+    fontSize: 10,
+    fontFamily: Theme.fonts.bold,
+  },
+  expandableCalendarSection: {
+    marginTop: Theme.spacing.sm,
+    borderTopWidth: 0.5,
+    borderTopColor: '#162035',
+    paddingTop: Theme.spacing.sm,
+  },
+  expandCalendarToggleBtn: {
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  expandCalendarToggleText: {
+    color: Theme.colors.primary,
+    fontSize: 11,
+    fontFamily: Theme.fonts.bold,
+  },
+  calendarEventsList: {
+    marginTop: Theme.spacing.sm,
+    backgroundColor: '#0B0F1A',
+    borderRadius: 8,
+    paddingHorizontal: Theme.spacing.sm,
+    paddingTop: Theme.spacing.xs,
+    borderWidth: 0.5,
+    borderColor: '#1A253E',
+  },
+  calendarEventRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: Theme.spacing.sm,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#162035',
+  },
+  calendarEventLeft: {
+    flex: 1,
+    marginRight: Theme.spacing.sm,
+  },
+  calendarEventRight: {
+    alignItems: 'flex-end',
+  },
+  calendarEventTitle: {
+    color: '#FFF',
+    fontSize: 11,
+    fontFamily: Theme.fonts.bold,
+    marginBottom: 2,
+  },
+  calendarEventDateText: {
+    color: Theme.colors.textMuted,
+    fontSize: 9,
+  },
+  calendarEventTypeBadge: {
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginBottom: 2,
+  },
+  calendarEventTypeText: {
+    fontSize: 8,
+    fontFamily: Theme.fonts.bold,
+  },
+  calendarEventDaysLeftText: {
+    color: Theme.colors.textMuted,
+    fontSize: 9,
   },
 });

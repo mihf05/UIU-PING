@@ -55,6 +55,13 @@ export interface CourseHistoryItem {
   point: number;
 }
 
+export interface AcademicCalendarEvent {
+  title: string;
+  date: string;
+  type: 'exam' | 'holiday' | 'academic';
+  daysLeft: number;
+}
+
 export interface DetailedMarksItem {
   itemName: string;
   itemValue: string;
@@ -319,8 +326,12 @@ export const ScraperService = {
       // 3. Extract dynamic SSRS ControlID from postback response
       const controlIdMatch = postbackHtml.match(/ControlID=([^&"' >]+)/i);
       if (!controlIdMatch) {
-        console.log('[ScraperService] SSRS ControlID missing in postback HTML. Falling back to dashboard routine.');
-        await StorageService.addScraperLog('warning', 'SSRS ControlID missing in postback HTML. Falling back.');
+        console.log('[ScraperService] SSRS ControlID missing in postback HTML. Trying advising fallback...');
+        await StorageService.addScraperLog('warning', 'SSRS ControlID missing in postback HTML. Trying advising fallback.');
+        const advisingRoutine = await this.fallbackAdvisingRoutine();
+        if (advisingRoutine.length > 0) {
+          return advisingRoutine;
+        }
         return this.fallbackDashboardRoutine();
       }
 
@@ -461,8 +472,14 @@ export const ScraperService = {
         }
       }
 
-      if (routine.length === 0) {
-        console.log('[ScraperService] SSRS routine table was empty or not found. Falling back to dashboard routine.');
+      const hasEmptyRooms = routine.length > 0 && routine.every(r => !r.room || r.room.trim() === '' || r.room === 'N/A' || r.room === 'undefined');
+
+      if (routine.length === 0 || hasEmptyRooms) {
+        console.log('[ScraperService] SSRS routine table has empty room values or not found. Trying advising routine fallback...');
+        const advisingRoutine = await this.fallbackAdvisingRoutine();
+        if (advisingRoutine.length > 0) {
+          return advisingRoutine;
+        }
         return this.fallbackDashboardRoutine();
       }
 
@@ -471,7 +488,11 @@ export const ScraperService = {
       return routine;
     } catch (error: any) {
       console.error('[ScraperService] SSRS Routine scraping error:', error);
-      await StorageService.addScraperLog('warning', `SSRS routine scrape failed: ${error.message || error}. Trying fallback.`);
+      await StorageService.addScraperLog('warning', `SSRS routine scrape failed: ${error.message || error}. Trying advising fallback.`);
+      const advisingRoutine = await this.fallbackAdvisingRoutine();
+      if (advisingRoutine.length > 0) {
+        return advisingRoutine;
+      }
       return this.fallbackDashboardRoutine();
     }
   },
@@ -922,6 +943,229 @@ export const ScraperService = {
       console.error('[ScraperService] Detailed marks scraping failed:', e);
       await StorageService.addScraperLog('error', `Detailed marks scrape failed: ${e.message || e}`);
       return {};
+    }
+  },
+
+  /**
+   * Fallback Class Routine parser from student advising page HTML (has room numbers)
+   */
+  async fallbackAdvisingRoutine(): Promise<RoutineItem[]> {
+    try {
+      console.log('[ScraperService] Executing advising page routine fallback parser...');
+      const response = await fetch(BASE_URL + 'Registration/SelfRegistrationByStudent.aspx?mmi=40545a1642555b514e63');
+      const html = await response.text();
+      const root = parse(html);
+      
+      const table = root.querySelector('#ctl00_MainContainer_gvCourseRegistration');
+      if (!table) {
+        console.log('[ScraperService] Advising course registration table not found.');
+        return [];
+      }
+
+      const rows = table.querySelectorAll('tr').slice(1);
+      const routine: RoutineItem[] = [];
+
+      rows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length >= 6) {
+          const registered = cells[5].text.trim().toLowerCase();
+          // Skip if not registered (e.g. "no")
+          if (registered === 'no') {
+            return;
+          }
+
+          const courseCode = cells[1].text.trim();
+          const courseTitle = cells[2].text.trim();
+          const sectionTimeText = cells[4].text.trim().replace(/\s+/g, ' ');
+
+          // Expected format: "A : Sat,Mon (09:51 AM-11:10 AM) Room: 309 Permanent Campus"
+          // We can parse it using regex
+          const regex = /^\s*([A-Z\d_.-]+)\s*:\s*([A-Za-z\s,-]+)\s*\(([^)]+)\)\s*(?:Room\s*:\s*(.+))?$/i;
+          const match = sectionTimeText.match(regex);
+          if (match) {
+            const section = match[1].trim();
+            const daysPart = match[2].trim();
+            const timeSlot = match[3].trim();
+            const room = match[4] ? match[4].trim() : '';
+
+            // Map short days to full day names
+            const dayMap: Record<string, string> = {
+              'sat': 'Saturday',
+              'sun': 'Sunday',
+              'mon': 'Monday',
+              'tue': 'Tuesday',
+              'wed': 'Wednesday',
+              'thu': 'Thursday',
+              'fri': 'Friday'
+            };
+
+            const days = daysPart.split(/[\s,]+/);
+            days.forEach(day => {
+              const cleanDay = day.toLowerCase().substring(0, 3);
+              const fullDay = dayMap[cleanDay];
+              if (fullDay) {
+                routine.push({
+                  day: fullDay,
+                  courseCode,
+                  section,
+                  courseTitle,
+                  timeSlot: timeSlot.replace(/:AM/g, ' AM').replace(/:PM/g, ' PM'),
+                  room
+                });
+              }
+            });
+          } else {
+            console.log(`[ScraperService] SectionTime text did not match regex: "${sectionTimeText}"`);
+          }
+        }
+      });
+
+      console.log(`[ScraperService] Scraped ${routine.length} routine items from advising page.`);
+      return routine;
+    } catch (e: any) {
+      console.error('[ScraperService] Advising page routine fallback failed:', e);
+      return [];
+    }
+  },
+
+  /**
+   * Scrapes academic calendar events from the UIU website
+   */
+  async scrapeAcademicCalendar(): Promise<AcademicCalendarEvent[]> {
+    try {
+      console.log('[ScraperService] Scraping academic calendar...');
+      const url = 'https://www.uiu.ac.bd/academics/calendar/';
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const html = await response.text();
+      const root = parse(html);
+      const calItems = root.querySelectorAll('.calender-item');
+      
+      const parsedEvents: AcademicCalendarEvent[] = [];
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      calItems.forEach(item => {
+        const summary = item.querySelector('summary')?.text.trim() || '';
+        const lowercaseSummary = summary.toLowerCase();
+        
+        // We focus on undergraduate programs
+        if (!lowercaseSummary.includes('undergraduate')) {
+          return;
+        }
+
+        const trs = item.querySelectorAll('table tbody tr');
+        trs.forEach(tr => {
+          const tds = tr.querySelectorAll('td');
+          if (tds.length >= 3) {
+            const dateStr = tds[0].text.trim().replace(/\s+/g, ' ');
+            const detailsText = tds[2].text.trim().replace(/\s+/g, ' ');
+
+            // Parse date
+            const yearMatch = dateStr.match(/\d{4}/);
+            const year = yearMatch ? yearMatch[0] : today.getFullYear().toString();
+            
+            const dateParts = dateStr.split(/[-–—]/);
+            let startPart = dateParts[0].trim();
+            
+            if (!startPart.includes(year)) {
+              startPart = `${startPart}, ${year}`;
+            }
+            
+            const parsedDate = new Date(startPart);
+            if (isNaN(parsedDate.getTime())) {
+              return; // skip if invalid date
+            }
+
+            // Determine type
+            let type: 'exam' | 'holiday' | 'academic' = 'academic';
+            const lowercaseDetails = detailsText.toLowerCase();
+            if (lowercaseDetails.includes('exam') || lowercaseDetails.includes('mid-term') || lowercaseDetails.includes('final exam')) {
+              type = 'exam';
+            } else if (lowercaseDetails.includes('holiday') || lowercaseDetails.includes('puja') || lowercaseDetails.includes('eid') || lowercaseDetails.includes('janmashtami')) {
+              type = 'holiday';
+            }
+
+            // Calculate daysLeft
+            const timeDiff = parsedDate.getTime() - today.getTime();
+            const daysLeft = Math.ceil(timeDiff / (1000 * 3600 * 24));
+
+            parsedEvents.push({
+              title: detailsText,
+              date: dateStr,
+              type,
+              daysLeft
+            });
+          }
+        });
+      });
+
+      // Sort chronological by daysLeft
+      parsedEvents.sort((a, b) => a.daysLeft - b.daysLeft);
+
+      console.log(`[ScraperService] Scraped ${parsedEvents.length} academic calendar events.`);
+      await StorageService.addScraperLog('success', `Scraped ${parsedEvents.length} calendar events from UIU website.`);
+      return parsedEvents;
+    } catch (error: any) {
+      console.error('[ScraperService] Academic calendar scraping error:', error);
+      await StorageService.addScraperLog('error', `Academic calendar scraping failed: ${error.message || error}`);
+      return [];
+    }
+  },
+
+  /**
+   * Scrapes available academic calendar batches from the detailed marks page dropdown mapping
+   */
+  async scrapeCalendarBatches(): Promise<{ code: string; label: string; value: string }[]> {
+    try {
+      console.log('[ScraperService] Scraping academic calendar batch options...');
+      const authenticated = await AuthService.ensureAuthenticated();
+      if (!authenticated) {
+        throw new Error('User session could not be authenticated.');
+      }
+      const url = BASE_URL + 'Result/ItemWiseDetailsMarksForStudent.aspx?mmi=415d552c795d4d494e63';
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const html = await response.text();
+      const root = parse(html);
+      const batchOptions = root.querySelectorAll('select#ctl00_MainContainer_ddlAcaCalBatch option');
+      
+      const batches: { code: string; label: string; value: string }[] = [];
+      batchOptions.forEach(opt => {
+        const val = opt.getAttribute('value');
+        if (val && val !== '0') {
+          const text = opt.text.trim();
+          // Text format is e.g. "261 - Spring 2026"
+          const match = text.match(/^(\d{3})\s*-\s*(.+)$/);
+          if (match) {
+            batches.push({
+              code: match[1],
+              label: match[2],
+              value: val
+            });
+          } else {
+            batches.push({
+              code: text,
+              label: text,
+              value: val
+            });
+          }
+        }
+      });
+      
+      console.log(`[ScraperService] Scraped ${batches.length} calendar batches.`);
+      return batches;
+    } catch (error: any) {
+      console.error('[ScraperService] Failed to scrape calendar batches:', error);
+      return [];
     }
   }
 };

@@ -317,6 +317,63 @@ export const StorageService = {
     }
   },
 
+  // --- AsyncStorage: Academic Calendar Events ---
+  async saveCalendarEvents(state: any): Promise<void> {
+    try {
+      await AsyncStorage.setItem('ucam_calendar_events', JSON.stringify(state));
+    } catch (error) {
+      console.error('[StorageService] Error saving calendar events:', error);
+    }
+  },
+
+  async getCalendarEvents(): Promise<any | null> {
+    try {
+      const state = await AsyncStorage.getItem('ucam_calendar_events');
+      return state ? JSON.parse(state) : null;
+    } catch (error) {
+      console.error('[StorageService] Error reading calendar events:', error);
+      return null;
+    }
+  },
+
+  // --- AsyncStorage: Calendar Batches Map ---
+  async saveCalendarBatches(state: any): Promise<void> {
+    try {
+      await AsyncStorage.setItem('ucam_calendar_batches', JSON.stringify(state));
+    } catch (error) {
+      console.error('[StorageService] Error saving calendar batches:', error);
+    }
+  },
+
+  async getCalendarBatches(): Promise<any | null> {
+    try {
+      const state = await AsyncStorage.getItem('ucam_calendar_batches');
+      return state ? JSON.parse(state) : null;
+    } catch (error) {
+      console.error('[StorageService] Error reading calendar batches:', error);
+      return null;
+    }
+  },
+
+  // --- AsyncStorage: Trimester-specific Detailed Marks ---
+  async saveDetailedMarksForSemester(semesterCode: string, state: any): Promise<void> {
+    try {
+      await AsyncStorage.setItem(`ucam_detailed_marks_${semesterCode}`, JSON.stringify(state));
+    } catch (error) {
+      console.error(`[StorageService] Error saving detailed marks for ${semesterCode}:`, error);
+    }
+  },
+
+  async getDetailedMarksForSemester(semesterCode: string): Promise<any | null> {
+    try {
+      const state = await AsyncStorage.getItem(`ucam_detailed_marks_${semesterCode}`);
+      return state ? JSON.parse(state) : null;
+    } catch (error) {
+      console.error(`[StorageService] Error reading detailed marks for ${semesterCode}:`, error);
+      return null;
+    }
+  },
+
   // Clear all states (Logout helper)
   async clearAllState(): Promise<void> {
     try {
@@ -334,6 +391,16 @@ export const StorageService = {
       await AsyncStorage.removeItem('ucam_pre_registration');
       await AsyncStorage.removeItem('ucam_billing_details');
       await AsyncStorage.removeItem('ucam_item_wise_marks');
+      await AsyncStorage.removeItem('ucam_calendar_events');
+      await AsyncStorage.removeItem('ucam_calendar_batches');
+      
+      // Clean up trimester-specific detailed marks
+      const allKeys = await AsyncStorage.getAllKeys();
+      const detailedMarksKeys = allKeys.filter(key => key.startsWith('ucam_detailed_marks_'));
+      if (detailedMarksKeys.length > 0) {
+        await AsyncStorage.multiRemove(detailedMarksKeys);
+      }
+
       console.log('[StorageService] All storage states cleared.');
     } catch (error) {
       console.error('[StorageService] Error clearing all states:', error);

@@ -105,6 +105,41 @@ TaskManager.defineTask(BACKGROUND_SCRAPE_TASK_NAME, async () => {
       } catch (historyError: any) {
         console.error('[BackgroundTask] Error checking course history in background:', historyError);
       }
+
+      // 2c. Class Routine Check
+      try {
+        console.log('[BackgroundTask] Scraping class routine...');
+        const currentRoutine = await ScraperService.scrapeClassRoutine();
+        const previousRoutine = await StorageService.getRoutine() as any[] | null;
+
+        if (previousRoutine && previousRoutine.length > 0 && currentRoutine.length > 0) {
+          let routineChanged = false;
+          if (currentRoutine.length !== previousRoutine.length) {
+            routineChanged = true;
+          } else {
+            for (const curr of currentRoutine) {
+              const prev = previousRoutine.find((p: any) => p.courseCode === curr.courseCode && p.section === curr.section && p.day === curr.day);
+              if (!prev || prev.timeSlot !== curr.timeSlot || prev.room !== curr.room) {
+                routineChanged = true;
+                break;
+              }
+            }
+          }
+
+          if (routineChanged) {
+            await NotificationService.triggerLocalNotification(
+              'Class Routine Updated! 🗓️',
+              'Your class routine or room assignments have changed.',
+              { type: 'routine' }
+            );
+            await StorageService.addScraperLog('success', 'Class routine change detected in background.');
+            dataChanged = true;
+          }
+        }
+        await StorageService.saveRoutine(currentRoutine);
+      } catch (routineError: any) {
+        console.error('[BackgroundTask] Error checking class routine in background:', routineError);
+      }
     }
 
     // Update execution metadata
@@ -128,7 +163,7 @@ export const BackgroundService = {
   /**
    * Register the background scraper task with a standard interval
    */
-  async registerTask(intervalSeconds: number = 3600): Promise<void> {
+  async registerTask(intervalSeconds: number = 900): Promise<void> {
     try {
       console.log(`[BackgroundService] Registering task "${BACKGROUND_SCRAPE_TASK_NAME}" (Interval: ${intervalSeconds}s)...`);
       
